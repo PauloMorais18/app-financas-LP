@@ -1,0 +1,1 @@
+import axios from "axios";export const api=axios.create({baseURL:import.meta.env.VITE_API_URL||"/api",timeout:15000});export const errorMessage=(e:unknown)=>axios.isAxiosError(e)?e.response?.data?.message||"Não foi possível acessar o servidor.":"Ocorreu um erro inesperado.";
