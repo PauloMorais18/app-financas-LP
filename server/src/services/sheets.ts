@@ -1,14 +1,27 @@
-import { google } from "googleapis"; import { randomUUID } from "node:crypto"; import type { Transaction } from "../types/transaction.js"; import { demoTransactions } from "../data/demo.js";
-const HEADERS=["ID","Data","Descrição","Categoria","Tipo","Valor","Forma de Pagamento","Status","Observação"];
-const configured=()=>Boolean(process.env.GOOGLE_SHEETS_SPREADSHEET_ID&&process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL&&process.env.GOOGLE_PRIVATE_KEY);
-const auth=()=>new google.auth.JWT({email:process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,key:process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g,"\n"),scopes:["https://www.googleapis.com/auth/spreadsheets"]});
-const api=()=>google.sheets({version:"v4",auth:auth()}); const id=()=>process.env.GOOGLE_SHEETS_SPREADSHEET_ID!; const range=()=>process.env.GOOGLE_SHEETS_TRANSACTIONS_RANGE||"Movimentacoes!A:I"; const sheet=()=>range().split("!")[0];
-const fromRow=(r:string[]):Transaction=>({id:r[0],date:r[1],description:r[2],category:r[3],type:r[4] as Transaction["type"],value:Number(String(r[5]).replace(",",".")),paymentMethod:r[6],status:r[7] as Transaction["status"],observation:r[8]||""});
-const row=(t:Transaction)=>[t.id,t.date,t.description,t.category,t.type,t.value,t.paymentMethod,t.status,t.observation||""];
-let demo=[...demoTransactions]; export let lastSync:string|null=null;
-export async function list(){if(!configured())return [...demo];const res=await api().spreadsheets.values.get({spreadsheetId:id(),range:range()});const rows=res.data.values||[];if(!rows.length)return[];if(HEADERS.some((h,i)=>rows[0]?.[i]!==h))throw new Error("Os cabeçalhos da planilha são inválidos.");lastSync=new Date().toISOString();return rows.slice(1).filter(r=>r[0]).map(fromRow)}
-export async function create(input:Omit<Transaction,"id">){const t={...input,id:randomUUID()};if(!configured()){demo.unshift(t);return t}await api().spreadsheets.values.append({spreadsheetId:id(),range:range(),valueInputOption:"USER_ENTERED",requestBody:{values:[row(t)]}});return t}
-async function locate(target:string){const all=await list();const idx=all.findIndex(t=>t.id===target);if(idx<0)throw Object.assign(new Error("Movimentação não encontrada."),{status:404});return{all,idx,row:idx+2}}
-export async function update(target:string,input:Omit<Transaction,"id">){const found=await locate(target);const t={...input,id:target};if(!configured()){demo[found.idx]=t;return t}await api().spreadsheets.values.update({spreadsheetId:id(),range:`${sheet()}!A${found.row}:I${found.row}`,valueInputOption:"USER_ENTERED",requestBody:{values:[row(t)]}});return t}
-export async function remove(target:string){const found=await locate(target);if(!configured()){demo.splice(found.idx,1);return}const meta=await api().spreadsheets.get({spreadsheetId:id()});const s=meta.data.sheets?.find(x=>x.properties?.title===sheet());if(!s)throw new Error("A aba configurada não existe.");await api().spreadsheets.batchUpdate({spreadsheetId:id(),requestBody:{requests:[{deleteDimension:{range:{sheetId:s.properties!.sheetId!,dimension:"ROWS",startIndex:found.row-1,endIndex:found.row}}}]}})}
-export async function status(){let count=0,error:string|undefined;if(configured())try{count=(await list()).length}catch(e){error=e instanceof Error?e.message:"Falha na conexão"}else count=demo.length;return{configured:configured(),mode:configured()?"sheets":"demo",spreadsheetId:configured()?process.env.GOOGLE_SHEETS_SPREADSHEET_ID:"",range:range(),serviceAccountEmail:process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL||"",connected:configured()&&!error,lastSync,records:count,error}}
+import { randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { Transaction } from "../types/transaction.js";
+import { demoTransactions } from "../data/demo.js";
+
+type ExcelSettings={apiUrl:string;apiKey:string;workbookId:string;worksheet:string;lastTest?:string};
+const folder=dirname(fileURLToPath(import.meta.url));
+const settingsFile=resolve(folder,"../data/excel-settings.json");
+let demo=[...demoTransactions];
+let cached:ExcelSettings|undefined;
+
+const readSettings=async():Promise<ExcelSettings>=>{if(cached)return cached;try{cached=JSON.parse(await readFile(settingsFile,"utf8"))}catch{cached={apiUrl:"",apiKey:"",workbookId:"",worksheet:"Movimentacoes"}}return cached!};
+export const publicSettings=async()=>{const s=await readSettings();return{apiUrl:s.apiUrl,workbookId:s.workbookId,worksheet:s.worksheet,configured:Boolean(s.apiUrl&&s.apiKey&&s.workbookId),connected:Boolean(s.lastTest),lastTest:s.lastTest,message:s.lastTest?"A última conexão com a API foi concluída com sucesso.":"Configure e teste os dados de acesso."}};
+export const saveSettings=async(input:Partial<ExcelSettings>)=>{const current=await readSettings();cached={apiUrl:String(input.apiUrl||"").replace(/\/$/,""),apiKey:String(input.apiKey||current.apiKey||""),workbookId:String(input.workbookId||""),worksheet:String(input.worksheet||"Movimentacoes"),lastTest:undefined};await writeFile(settingsFile,JSON.stringify(cached,null,2),"utf8");return publicSettings()};
+const configured=async()=>{const s=await readSettings();return Boolean(s.apiUrl&&s.apiKey&&s.workbookId)};
+const endpoint=async(path="")=>{const s=await readSettings();return`${s.apiUrl}/workbooks/${encodeURIComponent(s.workbookId)}/worksheets/${encodeURIComponent(s.worksheet)}/transactions${path}`};
+const request=async<T>(url:string,init?:RequestInit):Promise<T>=>{const s=await readSettings();const response=await fetch(url,{...init,headers:{Authorization:`Bearer ${s.apiKey}`,"X-API-Key":s.apiKey,"Content-Type":"application/json",...init?.headers},signal:AbortSignal.timeout(12000)});if(!response.ok)throw Object.assign(new Error(`A API do Excel respondeu com status ${response.status}.`),{status:502});if(response.status===204)return undefined as T;const body=await response.json() as T|{data:T};return(body&&typeof body==="object"&&"data" in body?(body as{data:T}).data:body)as T};
+const normalize=(t:Transaction):Transaction=>({...t,value:Number(t.value),recurring:Boolean(t.recurring),owner:t.owner||"Paulo",observation:t.observation||""});
+
+export async function list(){if(!await configured())return[...demo];const result=await request<Transaction[]>(await endpoint());return(result||[]).map(normalize)}
+export async function create(input:Omit<Transaction,"id">){if(!await configured()){const t={...input,id:randomUUID()};demo.unshift(t);return t}return normalize(await request<Transaction>(await endpoint(),{method:"POST",body:JSON.stringify(input)}))}
+export async function update(id:string,input:Omit<Transaction,"id">){if(!await configured()){const index=demo.findIndex(t=>t.id===id);if(index<0)throw Object.assign(new Error("Movimentação não encontrada."),{status:404});return demo[index]={...input,id}}return normalize(await request<Transaction>(await endpoint(`/${encodeURIComponent(id)}`),{method:"PUT",body:JSON.stringify(input)}))}
+export async function remove(id:string){if(!await configured()){const index=demo.findIndex(t=>t.id===id);if(index<0)throw Object.assign(new Error("Movimentação não encontrada."),{status:404});demo.splice(index,1);return}await request<void>(await endpoint(`/${encodeURIComponent(id)}`),{method:"DELETE"})}
+export async function testConnection(){if(!await configured())throw Object.assign(new Error("Preencha e salve todos os dados da API."),{status:400});await request<Transaction[]>(await endpoint());const s=await readSettings();s.lastTest=new Date().toISOString();await writeFile(settingsFile,JSON.stringify(s,null,2),"utf8");return publicSettings()}
+export async function status(){const s=await publicSettings();return{mode:s.configured?"excel-api":"demo",connected:s.connected,records:(await list()).length,lastSync:s.lastTest,spreadsheetId:s.workbookId,range:s.worksheet,serviceAccountEmail:""}}
