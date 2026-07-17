@@ -11,7 +11,7 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Frontend: `http://localhost:5173`  
+Frontend: `http://127.0.0.1:5180`  
 API: `http://localhost:3333/api/health`
 
 Sem uma API configurada, a aplicação funciona com dados locais de demonstração. A conexão é configurada dentro do app em **Configurações**.

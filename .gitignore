@@ -4,5 +4,7 @@ dist/
 *.log
 client/.env
 server/.env
+credentials/
+google-service-account.json
 .DS_Store
 server/data/excel-settings.json
