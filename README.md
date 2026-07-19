@@ -44,7 +44,7 @@ npm.cmd run build
 npm.cmd start
 ```
 
-O build gera o frontend em `client/dist`, o service worker do PWA e o backend local em `server/dist`.
+O build gera o frontend em `dist`, o service worker do PWA e o backend local em `server/dist`.
 
 ## Deploy na Vercel
 
