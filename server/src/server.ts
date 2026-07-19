@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { z, ZodError } from "zod";
 import { transactionSchema, querySchema } from "./schemas/transaction.js";
 import * as store from "./services/sheets.js";
@@ -20,13 +21,46 @@ const orderSchema = z.object({
   observation: z.string().trim().max(500).default(""),
 });
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
+app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173", credentials: true }));
 app.use(express.json({ limit: "50kb" }));
 app.use(rateLimit({ windowMs: 60_000, limit: 200 }));
 const safe =
   (fn: express.RequestHandler): express.RequestHandler =>
   (req, res, next) =>
     Promise.resolve(fn(req, res, next)).catch(next);
+const sessionCookie = "finanbase_session";
+const sessionSecret =
+  process.env.SESSION_SECRET ||
+  process.env.GOOGLE_PRIVATE_KEY ||
+  process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
+  process.env.GOOGLE_SHEET_ID ||
+  "finanbase-temporary-session-secret";
+type AuthPayload = { userId: string; name: string; exp: number };
+const signSession = (payload: AuthPayload) => {
+  const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = createHmac("sha256", sessionSecret).update(data).digest("base64url");
+  return `${data}.${signature}`;
+};
+const readSession = (req: express.Request): AuthPayload | undefined => {
+  try {
+    const cookies = Object.fromEntries(
+      String(req.headers.cookie || "").split(";").map((part) => {
+        const [name, ...value] = part.trim().split("=");
+        return [name, value.join("=")];
+      }),
+    );
+    const [data, signature] = String(cookies[sessionCookie] || "").split(".");
+    if (!data || !signature) return;
+    const expected = createHmac("sha256", sessionSecret).update(data).digest();
+    const received = Buffer.from(signature, "base64url");
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) return;
+    const payload = JSON.parse(Buffer.from(data, "base64url").toString()) as AuthPayload;
+    if (!payload.userId || payload.exp <= Date.now()) return;
+    return payload;
+  } catch { return; }
+};
+const cookieOptions = `HttpOnly; Path=/; SameSite=Strict; Max-Age=${60 * 60 * 12}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+const loginLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: true });
 app.get("/api/health", (_q, r) =>
   r.json({
     status: "ok",
@@ -38,6 +72,37 @@ app.get("/api/health", (_q, r) =>
     timezone: "America/Sao_Paulo",
   }),
 );
+app.post(
+  "/api/auth/login",
+  loginLimiter,
+  safe(async (req, res) => {
+    const name = String(req.body?.name || "").trim();
+    const password = String(req.body?.password || "");
+    const user = (await store.listUsers()).find(
+      (item) => item.active && item.name.localeCompare(name, "pt-BR", { sensitivity: "accent" }) === 0,
+    );
+    if (!user || password !== "1")
+      return res.status(401).json({ message: "Usuário ou senha inválidos." });
+    const payload: AuthPayload = { userId: user.id, name: user.name, exp: Date.now() + 12 * 60 * 60_000 };
+    res.setHeader("Set-Cookie", `${sessionCookie}=${signSession(payload)}; ${cookieOptions}`);
+    res.json({ user: { id: user.id, name: user.name } });
+  }),
+);
+app.get("/api/auth/session", (req, res) => {
+  const session = readSession(req);
+  if (!session) return res.status(401).json({ message: "Sessão não autenticada." });
+  res.json({ user: { id: session.userId, name: session.name } });
+});
+app.post("/api/auth/logout", (_req, res) => {
+  res.setHeader("Set-Cookie", `${sessionCookie}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
+  res.status(204).end();
+});
+app.use("/api", (req, res, next) => {
+  const session = readSession(req);
+  if (!session) return res.status(401).json({ message: "Faça login para continuar." });
+  res.locals.auth = session;
+  next();
+});
 app.get(
   "/api/settings/excel",
   safe(async (_q, r) => r.json(await store.publicSettings())),

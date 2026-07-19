@@ -43,6 +43,7 @@ import {
   Database,
   Home,
   LogIn,
+  LogOut,
   Menu,
   Pencil,
   Plus,
@@ -87,6 +88,7 @@ type Session = {
   activeUser?: AppUser;
   setActiveUserId: (id: string) => void;
   reloadUsers: () => void;
+  logout: () => void;
 };
 const SessionContext = createContext<Session | null>(null);
 const useSession = () => {
@@ -147,11 +149,62 @@ const savePreferences = (
     localStorage.setItem(incomeSourceKey(userId), preferences.sourceId);
 };
 
+type AuthUser = { id: string; name: string };
 export default function App() {
+  const [authUser, setAuthUser] = useState<AuthUser>(),
+    [checking, setChecking] = useState(true);
+  useEffect(() => {
+    api.get<{ user: AuthUser }>("/auth/session")
+      .then((response) => setAuthUser(response.data.user))
+      .catch(() => setAuthUser(undefined))
+      .finally(() => setChecking(false));
+    const expired = () => setAuthUser(undefined);
+    window.addEventListener("finanbase:unauthorized", expired);
+    return () => window.removeEventListener("finanbase:unauthorized", expired);
+  }, []);
+  const logout = async () => {
+    try { await api.post("/auth/logout"); } finally { setAuthUser(undefined); }
+  };
+  if (checking) return <div className="auth-loading"><span>FB</span><p>Carregando...</p></div>;
+  if (!authUser) return <LoginPage onLogin={setAuthUser} />;
+  return <AuthenticatedApp authUser={authUser} logout={logout} />;
+}
+
+function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
+  const [name, setName] = useState(""), [password, setPassword] = useState(""),
+    [error, setError] = useState(""), [loading, setLoading] = useState(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setError(""); setLoading(true);
+    try {
+      const response = await api.post<{ user: AuthUser }>("/auth/login", { name, password });
+      localStorage.setItem("finanbase-user", response.data.user.id);
+      onLogin(response.data.user);
+    } catch (reason) { setError(errorMessage(reason)); }
+    finally { setLoading(false); }
+  };
+  return <main className="login-page">
+    <section className="login-visual">
+      <div className="login-brand"><span>FB</span><b>Finanbase</b></div>
+      <div><small>CONTROLE FINANCEIRO</small><h1>Suas finanças e sua produção em um só lugar.</h1><p>Acesse seus ganhos, despesas e pedidos com segurança.</p></div>
+    </section>
+    <section className="login-panel">
+      <form className="card login-card" onSubmit={submit}>
+        <div className="login-mark">FB</div><h2>Entrar</h2><p>Use seu nome de usuário para continuar.</p>
+        {error && <div className="notice error">{error}</div>}
+        <Field label="Usuário"><input autoFocus value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" required /></Field>
+        <Field label="Senha"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></Field>
+        <button className="primary login-button" disabled={loading}>{loading ? "Entrando..." : "Entrar"}</button>
+        <small className="temporary-password">Senha temporária atual: 1</small>
+      </form>
+    </section>
+  </main>;
+}
+
+function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: () => void }) {
   const [toast, setToast] = useState<Toast>(),
     usersLoad = useLoad<AppUser[]>("/users", []),
     [storedUserId, setStoredUserId] = useState(
-      () => localStorage.getItem("finanbase-user") || "",
+      () => localStorage.getItem("finanbase-user") || authUser.id,
     ),
     activeUserId = usersLoad.data.some((user) => user.id === storedUserId)
       ? storedUserId
@@ -176,6 +229,7 @@ export default function App() {
     activeUser: usersLoad.data.find((user) => user.id === activeUserId),
     setActiveUserId,
     reloadUsers: usersLoad.reload,
+    logout,
   };
   return (
     <SessionContext.Provider value={session}>
@@ -228,7 +282,7 @@ export default function App() {
 
 function Layout() {
   const [open, setOpen] = useState(false),
-    { users, activeUserId, activeUser, setActiveUserId } = useSession();
+    { users, activeUserId, activeUser, setActiveUserId, logout } = useSession();
   return (
     <div className="shell">
       <aside className={open ? "open" : ""}>
@@ -278,6 +332,7 @@ function Layout() {
             <b>{activeUser?.name || "Selecione"}</b>
             <small>Usuário ativo</small>
           </div>
+          <button className="logout-button" onClick={logout} aria-label="Sair" title="Sair"><LogOut /></button>
         </div>
       </aside>
       <div className="content">
