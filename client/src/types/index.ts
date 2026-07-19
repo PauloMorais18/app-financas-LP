@@ -1,4 +1,10 @@
-export type Transaction={id:string;userId:string;date:string;description:string;category:string;type:"income"|"expense";value:number;paymentMethod:string;status:"paid"|"pending"|"cancelled";observation?:string;recurring:boolean;createdAt?:string;updatedAt?:string};
+export type Transaction={id:string;userId:string;sourceId?:string;companyId?:string;date:string;description:string;category:string;type:"income"|"expense";value:number;paymentMethod:string;status:"paid"|"pending"|"cancelled";observation?:string;recurring:boolean;createdAt?:string;updatedAt?:string};
 export type TransactionInput=Omit<Transaction,"id">;
 export type AppUser={id:string;name:string;email:string;active:boolean;createdAt:string;updatedAt:string};
+export type IncomeSource={id:string;userId:string;name:string;description:string;active:boolean;createdAt:string;updatedAt:string};
+export type Company={id:string;userId:string;name:string;active:boolean;createdAt:string;updatedAt:string};
+export type OrderStatus="queued"|"production"|"ready"|"delivered"|"cancelled";
+export type Order={id:string;userId:string;sourceId:string;colorId:string;colorName?:string;title:string;customer:string;dueDate:string;value:number;status:OrderStatus;observation:string;createdAt:string;updatedAt:string};
+export type OrderInput=Omit<Order,"id"|"createdAt"|"updatedAt"|"colorName">;
+export type Color={id:string;userId:string;name:string;createdAt:string;updatedAt:string};
 export type Category={id:string;name:string;kind:"income"|"expense"|"both";icon:string};
