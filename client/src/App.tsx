@@ -56,6 +56,7 @@ import {
   X,
 } from "lucide-react";
 import { api, errorMessage } from "./services/api";
+import { supabase } from "./services/supabase";
 import type {
   AppUser,
   Company,
@@ -149,7 +150,7 @@ const savePreferences = (
     localStorage.setItem(incomeSourceKey(userId), preferences.sourceId);
 };
 
-type AuthUser = { id: string; name: string };
+type AuthUser = { id: string; name: string; email?: string };
 export default function App() {
   const [authUser, setAuthUser] = useState<AuthUser>(),
     [checking, setChecking] = useState(true);
@@ -158,9 +159,10 @@ export default function App() {
       .then((response) => setAuthUser(response.data.user))
       .catch(() => setAuthUser(undefined))
       .finally(() => setChecking(false));
-    const expired = () => setAuthUser(undefined);
-    window.addEventListener("finanbase:unauthorized", expired);
-    return () => window.removeEventListener("finanbase:unauthorized", expired);
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") setAuthUser(undefined);
+    });
+    return () => data.subscription.unsubscribe();
   }, []);
   const logout = async () => {
     try { await api.post("/auth/logout"); } finally { setAuthUser(undefined); }
@@ -171,14 +173,21 @@ export default function App() {
 }
 
 function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
-  const [name, setName] = useState(""), [password, setPassword] = useState(""),
-    [error, setError] = useState(""), [loading, setLoading] = useState(false);
+  const [name, setName] = useState(""), [email, setEmail] = useState(""), [password, setPassword] = useState(""),
+    [error, setError] = useState(""), [message, setMessage] = useState(""), [loading, setLoading] = useState(false), [signup, setSignup] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(""); setLoading(true);
     try {
-      const response = await api.post<{ user: AuthUser }>("/auth/login", { name, password });
-      localStorage.setItem("finanbase-user", response.data.user.id);
-      onLogin(response.data.user);
+      if (signup) {
+        const response = await api.post<{ user: AuthUser | null; message: string }>("/auth/signup", { name, email, password });
+        if (response.data.user) localStorage.setItem("finanbase-user", response.data.user.id);
+        setMessage(response.data.message);
+        if (response.data.user && response.data.message === "Conta criada.") onLogin(response.data.user);
+      } else {
+        const response = await api.post<{ user: AuthUser }>("/auth/login", { email, password });
+        localStorage.setItem("finanbase-user", response.data.user.id);
+        onLogin(response.data.user);
+      }
     } catch (reason) { setError(errorMessage(reason)); }
     finally { setLoading(false); }
   };
@@ -189,12 +198,14 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
     </section>
     <section className="login-panel">
       <form className="card login-card" onSubmit={submit}>
-        <div className="login-mark">FB</div><h2>Entrar</h2><p>Use seu nome de usuário para continuar.</p>
+        <div className="login-mark">FB</div><h2>{signup ? "Criar conta" : "Entrar"}</h2><p>{signup ? "Cadastre seu acesso seguro." : "Use seu e-mail para continuar."}</p>
         {error && <div className="notice error">{error}</div>}
-        <Field label="Usuário"><input autoFocus value={name} onChange={(event) => setName(event.target.value)} autoComplete="username" required /></Field>
+        {message && <div className="notice success">{message}</div>}
+        {signup && <Field label="Nome"><input autoFocus value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required /></Field>}
+        <Field label="E-mail"><input autoFocus={!signup} type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" required /></Field>
         <Field label="Senha"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></Field>
-        <button className="primary login-button" disabled={loading}>{loading ? "Entrando..." : "Entrar"}</button>
-        <small className="temporary-password">Senha temporária atual: 1</small>
+        <button className="primary login-button" disabled={loading || password.length < 6}>{loading ? "Aguarde..." : signup ? "Criar conta" : "Entrar"}</button>
+        <button type="button" className="auth-switch" onClick={() => { setSignup(!signup); setError(""); setMessage(""); }}>{signup ? "Já tenho uma conta" : "Criar uma conta"}</button>
       </form>
     </section>
   </main>;
@@ -1318,33 +1329,21 @@ function UserManagement({
 }: {
   notify: (message: string, error?: boolean) => void;
 }) {
-  const { users, activeUserId, setActiveUserId, reloadUsers } = useSession(),
-    [name, setName] = useState(""),
-    [email, setEmail] = useState(""),
-    [editingId, setEditingId] = useState<string>();
-  const edit = (user: AppUser) => { setEditingId(user.id); setName(user.name); setEmail(user.email); };
-  const clear = () => { setEditingId(undefined); setName(""); setEmail(""); };
-  const remove = async (user: AppUser) => {
-    if (!confirm(`Excluir o usuário ${user.name}?`)) return;
-    try {
-      await api.delete(`/users/${user.id}`);
-      if (editingId === user.id) clear();
-      await reloadUsers();
-      notify("Usuário excluído.");
-    } catch (error) {
-      notify(errorMessage(error), true);
-    }
-  };
-  const add = async (event: FormEvent) => {
+  const { users, reloadUsers } = useSession();
+  const user = users[0];
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  useEffect(() => {
+    setName(user?.name || "");
+    setEmail(user?.email || "");
+  }, [user]);
+  const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (!user) return;
     try {
-      const response = editingId
-        ? await api.put<AppUser>(`/users/${editingId}`, { name, email })
-        : await api.post<AppUser>("/users", { name, email });
-      clear();
-      reloadUsers();
-      setActiveUserId(response.data.id);
-      notify(editingId ? "Usuário atualizado." : "Usuário criado e selecionado.");
+      await api.put<AppUser>(`/users/${user.id}`, { name, email });
+      await reloadUsers();
+      notify("Perfil atualizado.");
     } catch (error) {
       notify(errorMessage(error), true);
     }
@@ -1352,16 +1351,16 @@ function UserManagement({
   return (
     <>
       <PageHeading
-        title="Usuários"
-        subtitle="Crie perfis e alterne a visão financeira."
+        title="Meu perfil"
+        subtitle="Atualize os dados da sua conta. Cada acesso possui dados isolados."
       />
-      <div className="settings-grid">
+      <div className="settings-grid profile-grid">
         <article className="card form-card">
           <CardTitle
-            title="Adicionar usuário"
-            subtitle="O novo usuário poderá ter suas próprias fontes."
+            title="Dados pessoais"
+            subtitle="O e-mail também é usado para entrar no sistema."
           />
-          <form onSubmit={add}>
+          <form onSubmit={save}>
             <div className="form-grid one">
               <Field label="Nome">
                 <input
@@ -1379,43 +1378,11 @@ function UserManagement({
               </Field>
             </div>
             <div className="form-actions">
-              {editingId && <button type="button" className="outline" onClick={clear}>Cancelar</button>}
-              <button className="primary">
-                {editingId ? <Pencil /> : <Plus />}
-                {editingId ? "Salvar alterações" : "Adicionar usuário"}
+              <button className="primary" disabled={!user}>
+                <Pencil /> Salvar perfil
               </button>
             </div>
           </form>
-        </article>
-        <article className="card table-card">
-          <CardTitle
-            title="Usuários cadastrados"
-            subtitle="Escolha com qual usuário deseja entrar."
-          />
-          <div className="user-list">
-            {users.map((user) => (
-              <div
-                className={`source-item ${user.id === activeUserId ? "selected" : ""}`}
-                key={user.id}
-              >
-                <span>
-                  <User />
-                </span>
-                <div>
-                  <b>{user.name}</b>
-                  <small>{user.email || user.id}</small>
-                </div>
-                <div className="user-actions">
-                  <button className="icon-button" onClick={() => edit(user)} aria-label={`Editar ${user.name}`}><Pencil /></button>
-                  <button className="icon-button" onClick={() => remove(user)} aria-label={`Excluir ${user.name}`}><Trash2 /></button>
-                  <button className="outline" onClick={() => setActiveUserId(user.id)} disabled={user.id === activeUserId}>
-                    <LogIn />
-                    {user.id === activeUserId ? "Ativo" : "Entrar"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
         </article>
       </div>
     </>
@@ -1448,7 +1415,7 @@ function Configuration({
     try {
       await api.post("/sheets/test");
       setResult("success");
-      notify("Google Sheets conectado.");
+      notify("Supabase conectado.");
       load.reload();
     } catch (error) {
       setResult("error");
@@ -1463,7 +1430,7 @@ function Configuration({
     <>
       <PageHeading
         title="Configurações"
-        subtitle="Verifique a conexão segura com o Google Sheets."
+        subtitle="Verifique a conexão segura com o Supabase."
       />
       <article className="card connection-card">
         <span className={connected ? "connected" : ""}>
@@ -1478,22 +1445,22 @@ function Configuration({
         </h3>
         <p>
           {result === "error"
-            ? "Confira a Service Account e o compartilhamento."
+            ? "Confira a URL, a chave pública e o script do banco."
             : load.data.message ||
-              "A autenticação ocorre exclusivamente no backend."}
+              "Autenticação e dados protegidos pelo Supabase."}
         </p>
         <dl>
           <div>
-            <dt>Planilha</dt>
+            <dt>Projeto</dt>
             <dd>{load.data.workbookId || "Não configurada"}</dd>
           </div>
           <div>
-            <dt>Abas</dt>
-            <dd>Usuarios, Movimentacoes, FontesRenda, Empresas, Pedidos, Listas e Instrucoes</dd>
+            <dt>Tabelas</dt>
+            <dd>Perfis, movimentações, fontes de renda, empresas, cores e pedidos</dd>
           </div>
           <div>
             <dt>Autenticação</dt>
-            <dd>Service Account no backend</dd>
+            <dd>Supabase Auth + Row Level Security</dd>
           </div>
         </dl>
         <div className="form-actions">

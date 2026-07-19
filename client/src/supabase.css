@@ -1,0 +1,4 @@
+.notice.success { background: #eafaf2; color: #087a43; }
+.auth-switch { border: 0; background: transparent; color: #2161f5; font-weight: 700; padding: 4px; }
+.auth-switch:hover { text-decoration: underline; }
+.profile-grid { grid-template-columns: minmax(0, 720px); }
