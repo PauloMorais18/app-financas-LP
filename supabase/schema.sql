@@ -91,6 +91,21 @@ alter table public.transactions add column if not exists client_id uuid referenc
 alter table public.transactions add column if not exists product_id uuid references public.products(id) on delete set null;
 alter table public.orders add column if not exists client_id uuid references public.clients(id) on delete set null;
 alter table public.orders add column if not exists product_id uuid references public.products(id) on delete set null;
+create table if not exists public.order_products (
+  order_id uuid not null references public.orders(id) on delete cascade,
+  product_id uuid not null references public.products(id) on delete restrict,
+  quantity integer not null default 1 check(quantity > 0),
+  created_at timestamptz not null default now(),
+  primary key(order_id,product_id)
+);
+alter table public.order_products add column if not exists quantity integer not null default 1;
+do $$ begin
+  if not exists(select 1 from pg_constraint where conname='order_products_quantity_positive') then
+    alter table public.order_products add constraint order_products_quantity_positive check(quantity > 0);
+  end if;
+end $$;
+insert into public.order_products(order_id,product_id)
+select id,product_id from public.orders where product_id is not null on conflict do nothing;
 
 create index if not exists income_sources_user_idx on public.income_sources(user_id);
 create index if not exists companies_user_idx on public.companies(user_id);
@@ -135,6 +150,7 @@ alter table public.transactions enable row level security;
 alter table public.orders enable row level security;
 alter table public.clients enable row level security;
 alter table public.products enable row level security;
+alter table public.order_products enable row level security;
 
 drop policy if exists profiles_own on public.profiles;
 create policy profiles_own on public.profiles for all to authenticated using (id = auth.uid()) with check (id = auth.uid());
@@ -264,18 +280,108 @@ drop policy if exists groups_owner_insert on public.groups;
 create policy groups_owner_insert on public.groups for insert to authenticated with check(owner_id=auth.uid());
 drop policy if exists groups_owner_update on public.groups;
 create policy groups_owner_update on public.groups for update to authenticated using(owner_id=auth.uid()) with check(owner_id=auth.uid());
+
+create or replace function public.delete_owned_group(target_group uuid)
+returns void language plpgsql security definer set search_path=public as $$
+begin
+  if not exists(select 1 from public.groups where id=target_group and owner_id=auth.uid()) then
+    raise exception 'Você não é o proprietário deste grupo.';
+  end if;
+  if exists(select 1 from public.groups where id=target_group and is_default) then
+    raise exception 'O grupo padrão não pode ser excluído.';
+  end if;
+  delete from public.transactions where group_id=target_group;
+  delete from public.orders where group_id=target_group;
+  delete from public.colors where group_id=target_group;
+  delete from public.clients where group_id=target_group;
+  delete from public.products where group_id=target_group;
+  delete from public.companies where group_id=target_group;
+  delete from public.income_sources where group_id=target_group;
+  delete from public.groups where id=target_group;
+end;
+$$;
 drop policy if exists members_group_select on public.group_members;
 create policy members_group_select on public.group_members for select to authenticated using(user_id=auth.uid() or public.is_group_member(group_id));
 drop policy if exists members_self_insert on public.group_members;
 create policy members_self_insert on public.group_members for insert to authenticated with check(user_id=auth.uid() and (exists(select 1 from public.groups where id=group_id and owner_id=auth.uid())));
+
+create or replace function public.keep_row_author()
+returns trigger language plpgsql as $$
+begin
+  new.user_id = old.user_id;
+  return new;
+end;
+$$;
 
 do $$ declare table_name text;
 begin
   foreach table_name in array array['income_sources','companies','colors','clients','products','transactions','orders'] loop
     execute format('drop policy if exists own_rows on public.%I',table_name);
     execute format('drop policy if exists group_rows on public.%I',table_name);
-    execute format('create policy group_rows on public.%I for all to authenticated using (public.is_group_member(group_id)) with check (public.is_group_member(group_id) and user_id=auth.uid())',table_name);
+    execute format('drop policy if exists group_select on public.%I',table_name);
+    execute format('drop policy if exists group_insert on public.%I',table_name);
+    execute format('drop policy if exists group_update on public.%I',table_name);
+    execute format('drop policy if exists group_delete on public.%I',table_name);
+    execute format('create policy group_select on public.%I for select to authenticated using (public.is_group_member(group_id))',table_name);
+    execute format('create policy group_insert on public.%I for insert to authenticated with check (public.is_group_member(group_id) and user_id=auth.uid())',table_name);
+    execute format('create policy group_update on public.%I for update to authenticated using (public.is_group_member(group_id)) with check (public.is_group_member(group_id))',table_name);
+    execute format('create policy group_delete on public.%I for delete to authenticated using (public.is_group_member(group_id))',table_name);
+    execute format('drop trigger if exists keep_row_author_before_update on public.%I',table_name);
+    execute format('create trigger keep_row_author_before_update before update on public.%I for each row execute function public.keep_row_author()',table_name);
   end loop;
 end $$;
 grant select,insert,update,delete on public.groups,public.group_members to authenticated;
 grant execute on function public.join_group_by_code(text) to authenticated;
+revoke all on function public.delete_owned_group(uuid) from public;
+grant execute on function public.delete_owned_group(uuid) to authenticated;
+
+drop policy if exists order_products_group_access on public.order_products;
+create policy order_products_group_access on public.order_products for all to authenticated
+using (exists(select 1 from public.orders o where o.id=order_id and public.is_group_member(o.group_id)))
+with check (exists(select 1 from public.orders o where o.id=order_id and public.is_group_member(o.group_id)));
+grant select,insert,update,delete on public.order_products to authenticated;
+
+create or replace function public.refresh_order_products_total()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare target_order uuid;
+begin
+  target_order := case when tg_op='DELETE' then old.order_id else new.order_id end;
+  update public.orders set value=coalesce((
+    select sum(p.sale_value*op.quantity)
+    from public.order_products op join public.products p on p.id=op.product_id
+    where op.order_id=target_order
+  ),0) where id=target_order;
+  return null;
+end;
+$$;
+drop trigger if exists refresh_order_products_total_after_write on public.order_products;
+create trigger refresh_order_products_total_after_write after insert or update or delete on public.order_products
+for each row execute function public.refresh_order_products_total();
+
+update public.orders o set value=coalesce((
+  select sum(p.sale_value*op.quantity)
+  from public.order_products op join public.products p on p.id=op.product_id
+  where op.order_id=o.id
+),0) where exists(select 1 from public.order_products op where op.order_id=o.id);
+
+alter table public.orders add column if not exists updated_by uuid references public.profiles(id) on delete set null;
+alter table public.orders add column if not exists updated_by_name text not null default '';
+update public.orders o set updated_by=o.user_id, updated_by_name=coalesce(p.name,'')
+from public.profiles p where p.id=o.user_id and o.updated_by is null;
+
+create or replace function public.set_order_last_editor()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare editor_id uuid;
+begin
+  editor_id := auth.uid();
+  if editor_id is null and tg_op='INSERT' then editor_id := new.user_id; end if;
+  if editor_id is not null then
+    new.updated_by := editor_id;
+    select coalesce(name,'') into new.updated_by_name from public.profiles where id=editor_id;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists set_order_last_editor_before_write on public.orders;
+create trigger set_order_last_editor_before_write before insert or update on public.orders
+for each row execute function public.set_order_last_editor();

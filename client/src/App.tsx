@@ -68,6 +68,7 @@ import type {
   IncomeSource,
   Order,
   OrderInput,
+  OrderProductItem,
   Product,
   Transaction,
   TransactionInput,
@@ -994,11 +995,19 @@ const orderStatusLabel = {
   cancelled: "Cancelado",
 } as const;
 const orderSourceKey = incomeSourceKey;
+type OrderQueueFilter = "all" | "pending" | "ready" | "delivered";
+const orderQueueFilters: { value: OrderQueueFilter; label: string }[] = [
+  { value: "all", label: "Todos" },
+  { value: "pending", label: "Pendentes" },
+  { value: "ready", label: "Prontos" },
+  { value: "delivered", label: "Entregues" },
+];
 
 function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { activeUserId, activeGroupId } = useSession(),
     sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
-    [sourceId, setSourceId] = useState(() => localStorage.getItem(orderSourceKey(activeUserId)) || "");
+    [sourceId, setSourceId] = useState(() => localStorage.getItem(orderSourceKey(activeUserId)) || ""),
+    [statusFilter, setStatusFilter] = useState<OrderQueueFilter>("all");
   useEffect(() => {
     const cached = localStorage.getItem(orderSourceKey(activeUserId)) || "";
     const available = sources.data.filter((source) => source.active);
@@ -1026,6 +1035,12 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
         notify("Pedido excluído.");
       } catch (error) { notify(errorMessage(error), true); }
     };
+  const sortedOrders = [...orders.data].sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+  const orderNumbers = new Map(sortedOrders.map((order, index) => [order.id, index + 1]));
+  const visibleOrders = sortedOrders.filter((order) => statusFilter === "all"
+    || (statusFilter === "pending" && (order.status === "queued" || order.status === "production"))
+    || order.status === statusFilter);
+  const totalOrderValue = orders.data.reduce((total, order) => total + order.value, 0);
   return <>
     <PageHeading title="Fila de produção" subtitle="Acompanhe e atualize os pedidos em andamento.">
       <NavLink className="primary" to="/pedidos/novo"><Plus />Cadastrar pedido</NavLink>
@@ -1037,12 +1052,18 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
           {sources.data.filter((source) => source.active).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}
         </select>
       </Field>
-      <small>A última fonte selecionada fica salva neste navegador.</small>
+      <div className="order-totals">
+        <div><small>Total de pedidos</small><strong>{orders.data.length}</strong></div>
+        <div><small>Valor total em pedidos</small><strong>{money.format(totalOrderValue)}</strong></div>
+      </div>
     </article>
+    <div className="order-status-filter" role="navigation" aria-label="Filtrar pedidos por status">
+      {orderQueueFilters.map((filter) => <button type="button" key={filter.value} className={statusFilter === filter.value ? "active" : ""} onClick={() => setStatusFilter(filter.value)}>{filter.label}</button>)}
+    </div>
     <section className="order-board">
-      {orders.data.map((order) => <article className="card order-card" key={order.id}>
+      {visibleOrders.map((order) => <article className="card order-card" key={order.id}>
         <div className="order-card-head">
-          <span className={`order-status ${order.status}`}>{orderStatusLabel[order.status]}</span>
+          <div className="order-card-identification"><span className="order-number">Pedido #{String(orderNumbers.get(order.id) || 0).padStart(3, "0")}</span><span className={`order-status ${order.status}`}>{orderStatusLabel[order.status]}</span></div>
           <strong>{money.format(order.value)}</strong>
         </div>
         <h3>{order.title}</h3>
@@ -1058,7 +1079,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
           <button className="icon-button danger" onClick={() => remove(order.id)} aria-label="Excluir pedido"><Trash2 /></button>
         </div>
       </article>)}
-      {!orders.loading && !orders.data.length && <article className="card order-empty"><Empty text={sourceId ? "Nenhum pedido nesta fila." : "Cadastre uma fonte de renda para criar pedidos."} /></article>}
+      {!orders.loading && !visibleOrders.length && <article className="card order-empty"><Empty text={!sourceId ? "Cadastre uma fonte de renda para criar pedidos." : orders.data.length ? "Nenhum pedido encontrado neste filtro." : "Nenhum pedido nesta fila."} /></article>}
     </section>
   </>;
 }
@@ -1066,10 +1087,10 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
 function OrderForm({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { id } = useParams(), navigate = useNavigate(), { activeUserId, activeGroupId } = useSession();
   const sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []);
-  const [values, setValues] = useState<OrderInput>({
+  const [values, setValues] = useState<OrderInput & Pick<Partial<Order>, "lastEditedById" | "lastEditedByName">>({
       userId: activeUserId, groupId: activeGroupId, sourceId: localStorage.getItem(orderSourceKey(activeUserId)) || "",
       colorId: "",
-      clientId: "", productId: "",
+      clientId: "", productId: "", productIds: [], productItems: [],
       title: "", customer: "", dueDate: todayBrasilia(), value: 0,
       status: "queued", observation: "",
     });
@@ -1080,7 +1101,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     [newColorName, setNewColorName] = useState("");
   const colors = useLoad<Color[]>(`/colors?${query({ groupId: activeGroupId, search: colorSearch })}`, []);
   const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]), products=useLoad<Product[]>(`/products?${query({groupId:activeGroupId})}`,[]);
-  const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name});if(kind==="clients"){const item=response.data as Client;set("clientId",item.id);set("customer",item.name);clients.reload()}else{const item=response.data as Product;set("productId",item.id);set("title",item.name);set("value",item.saleValue);products.reload()}notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
+  const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;let saleValue=0;if(kind==="products"){const rawValue=prompt("Valor de venda do produto (R$):","0,00");if(rawValue===null)return;saleValue=Number(rawValue.replace(/\s/g,"").replace(/\./g,"").replace(",","."));if(!Number.isFinite(saleValue)||saleValue<0){notify("Informe um valor de venda válido.",true);return}}try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name,...(kind==="products"?{saleValue}:{})});if(kind==="clients"){const item=response.data as Client;set("clientId",item.id);set("customer",item.name);clients.reload()}else{const item=response.data as Product;setValues(current=>syncOrderProducts(current,[...(current.productItems||[]),{productId:item.id,name:item.name,quantity:1,saleValue:item.saleValue}]));products.reload()}notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   useEffect(() => {
     if (id) api.get<Order>(`/orders/${id}`).then(({ data }) => {
       setValues(data);
@@ -1096,6 +1117,12 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     if (sourceId) localStorage.setItem(orderSourceKey(activeUserId), sourceId);
   }, [id, activeUserId, activeGroupId, sources.loading, sources.data]);
   const set = <K extends keyof OrderInput>(key: K, value: OrderInput[K]) => setValues((current) => ({ ...current, [key]: value }));
+  const selectedProductItems: OrderProductItem[] = values.productItems?.length ? values.productItems : (values.productIds || (values.productId ? [values.productId] : [])).map((productId, index) => { const product=products.data.find((item)=>item.id===productId); return {productId,name:product?.name||values.productNames?.[index]||"Produto",quantity:1,saleValue:product?.saleValue||0}; });
+  const selectedProductIds = selectedProductItems.map((item) => item.productId);
+  const syncOrderProducts = (current: typeof values, items: OrderProductItem[]) => ({ ...current, productId: items[0]?.productId || "", productIds: items.map((item) => item.productId), productNames: items.map((item) => item.name), productItems: items, title: items.map((item) => item.name).join(" + ") || current.title, value: items.reduce((total, item) => total + item.saleValue * item.quantity, 0) });
+  const addProduct = (productId: string) => { const product=products.data.find((item)=>item.id===productId);if(product&&!selectedProductIds.includes(productId))setValues((current)=>syncOrderProducts(current,[...selectedProductItems,{productId:product.id,name:product.name,quantity:1,saleValue:product.saleValue}])); };
+  const removeProduct = (productId: string) => setValues((current)=>syncOrderProducts(current,selectedProductItems.filter((item)=>item.productId!==productId)));
+  const updateProductQuantity = (productId: string, quantity: number) => setValues((current)=>syncOrderProducts(current,selectedProductItems.map((item)=>item.productId===productId?{...item,quantity:Math.max(1,quantity||1)}:item)));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     try {
@@ -1121,10 +1148,11 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     <PageHeading title={id ? "Editar pedido" : "Cadastrar pedido"} subtitle="Inclua o pedido na fila de produção." />
     <article className="card form-card">
       {loading ? <Empty text="Carregando..." /> : <form onSubmit={submit}>
+        {id && values.lastEditedByName && <div className="order-audit"><User /><span>Última alteração por <strong>{values.lastEditedByName}</strong></span></div>}
         <div className="form-grid">
           <Field label="Pedido"><input value={values.title} onChange={(e) => set("title", e.target.value)} placeholder="Ex.: 50 peças personalizadas" required /></Field>
           <Field label="Cliente"><div className="select-add"><select value={values.clientId||""} onChange={e=>{set("clientId",e.target.value);const item=clients.data.find(client=>client.id===e.target.value);if(item)set("customer",item.name)}}><option value="">Selecione ou cadastre</option>{clients.data.filter(item=>item.active).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select><button type="button" className="outline" onClick={()=>quickCatalog("clients")}><Plus/>Rápido</button></div><input value={values.customer} onChange={(e) => set("customer", e.target.value)} placeholder="Nome do cliente" required /></Field>
-          <Field label="Produto"><div className="select-add"><select value={values.productId||""} onChange={e=>{set("productId",e.target.value);const item=products.data.find(product=>product.id===e.target.value);if(item){set("title",item.name);set("value",item.saleValue)}}}><option value="">Selecione ou cadastre</option>{products.data.filter(item=>item.active).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select><button type="button" className="outline" onClick={()=>quickCatalog("products")}><Plus/>Rápido</button></div></Field>
+          <Field label="Produtos"><div className="select-add"><select value="" onChange={(event) => addProduct(event.target.value)}><option value="">Adicionar produto</option>{products.data.filter((item) => item.active && !selectedProductIds.includes(item.id)).map((item) => <option value={item.id} key={item.id}>{item.name} · {money.format(item.saleValue)}</option>)}</select><button type="button" className="outline" onClick={()=>quickCatalog("products")}><Plus/>Rápido</button></div>{selectedProductItems.length > 0 && <div className="selected-products">{selectedProductItems.map((item) => <div className="selected-product" key={item.productId}><span>{item.name}</span><label>Qtd.<input type="number" min="1" step="1" value={item.quantity} onChange={(event)=>updateProductQuantity(item.productId,Number(event.target.value))}/></label><strong>{money.format(item.saleValue*item.quantity)}</strong><button type="button" onClick={() => removeProduct(item.productId)} aria-label={`Remover ${item.name}`}><X /></button></div>)}</div>}</Field>
           <Field label="Fonte de renda"><select value={values.sourceId} onChange={(e) => { set("sourceId", e.target.value); localStorage.setItem(orderSourceKey(activeUserId), e.target.value); }} required><option value="">Selecione</option>{sources.data.filter((source) => source.active).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></Field>
           <Field label="Prazo"><input type="date" value={values.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></Field>
           <Field label="Cor">
@@ -1142,7 +1170,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
               <button type="button" className="outline color-add" onClick={() => { setNewColorName(colorSearch); setColorModal(true); setColorOpen(false); }}><Plus />Nova cor</button>
             </div>
           </Field>
-          <Field label="Valor"><div className="money-input"><span>R$</span><CurrencyInput value={values.value} onChange={(value) => set("value", value)} /></div></Field>
+          <Field label="Valor total (automático)"><div className="money-input automatic-order-value"><span>R$</span><input value={values.value.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})} readOnly aria-label="Valor total calculado pelos produtos" /></div></Field>
           <Field label="Status"><select value={values.status} onChange={(e) => set("status", e.target.value as Order["status"])}>{Object.entries(orderStatusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
           <Field label="Observações" wide><textarea rows={4} value={values.observation} onChange={(e) => set("observation", e.target.value)} /></Field>
         </div>
@@ -1472,9 +1500,11 @@ function UserManagement({
 }
 
 function GroupManagement({ notify }: { notify: (message: string, error?: boolean) => void }) {
-  const { groups, activeGroupId, setActiveGroupId, reloadGroups } = useSession();
+  const { groups, activeUserId, activeGroupId, setActiveGroupId, reloadGroups } = useSession();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  const [editingId, setEditingId] = useState("");
+  const [editingName, setEditingName] = useState("");
   const [loading, setLoading] = useState(false);
   const create = async (event: FormEvent) => {
     event.preventDefault(); setLoading(true);
@@ -1488,6 +1518,23 @@ function GroupManagement({ notify }: { notify: (message: string, error?: boolean
     try {
       const response = await api.post<Group>("/groups/join", { code });
       await reloadGroups(); setActiveGroupId(response.data.id); setCode(""); notify("Você entrou no grupo.");
+    } catch (error) { notify(errorMessage(error), true); } finally { setLoading(false); }
+  };
+  const saveGroup = async (group: Group) => {
+    const nextName = editingName.trim();
+    if (nextName.length < 2) return notify("Informe um nome com pelo menos 2 caracteres.", true);
+    setLoading(true);
+    try { await api.put(`/groups/${group.id}`, { name: nextName }); await reloadGroups(); setEditingId(""); notify("Grupo atualizado com sucesso."); }
+    catch (error) { notify(errorMessage(error), true); } finally { setLoading(false); }
+  };
+  const deleteGroup = async (group: Group) => {
+    if (!window.confirm(`Excluir o grupo “${group.name}” e todos os dados vinculados a ele? Esta ação não pode ser desfeita.`)) return;
+    setLoading(true);
+    try {
+      await api.delete(`/groups/${group.id}`);
+      const remaining = groups.filter((item) => item.id !== group.id);
+      if (activeGroupId === group.id && remaining[0]) setActiveGroupId(remaining[0].id);
+      await reloadGroups(); notify("Grupo excluído com sucesso.");
     } catch (error) { notify(errorMessage(error), true); } finally { setLoading(false); }
   };
   return <>
@@ -1505,8 +1552,11 @@ function GroupManagement({ notify }: { notify: (message: string, error?: boolean
       </div>
       <article className="card table-card"><CardTitle title="Meus grupos" subtitle={`${groups.length} grupo(s) disponível(is)`} />
         <div className="source-list">{groups.map((group) => <div className={`source-item ${group.id === activeGroupId ? "selected" : ""}`} key={group.id}>
-          <span><Users /></span><div><b>{group.name}</b><small>Código: <strong>{group.code}</strong> · {group.memberCount} membro(s){group.isDefault ? " · Padrão" : ""}</small></div>
-          <button className="outline" disabled={group.id === activeGroupId} onClick={() => { setActiveGroupId(group.id); notify("Grupo de exibição alterado."); }}>{group.id === activeGroupId ? "Em uso" : "Usar"}</button>
+          <span><Users /></span><div>{editingId === group.id ? <input className="group-name-input" value={editingName} onChange={(event) => setEditingName(event.target.value)} minLength={2} autoFocus /> : <b>{group.name}</b>}<small>Código: <strong>{group.code}</strong> · {group.memberCount} membro(s){group.isDefault ? " · Padrão" : ""}</small></div>
+          <div className="group-actions">
+            <button className="outline" disabled={loading || group.id === activeGroupId} onClick={() => { setActiveGroupId(group.id); notify("Grupo de exibição alterado."); }}>{group.id === activeGroupId ? "Em uso" : "Usar"}</button>
+            {group.ownerId === activeUserId && (editingId === group.id ? <><button className="primary icon-button" disabled={loading} title="Salvar grupo" aria-label="Salvar grupo" onClick={() => saveGroup(group)}><CheckCircle2 /></button><button className="outline icon-button" disabled={loading} title="Cancelar edição" aria-label="Cancelar edição" onClick={() => setEditingId("")}><X /></button></> : <><button className="outline icon-button" disabled={loading} title="Editar grupo" aria-label={`Editar ${group.name}`} onClick={() => { setEditingId(group.id); setEditingName(group.name); }}><Pencil /></button><button className="danger icon-button" disabled={loading || group.isDefault} title={group.isDefault ? "O grupo padrão não pode ser excluído" : "Excluir grupo"} aria-label={`Excluir ${group.name}`} onClick={() => deleteGroup(group)}><Trash2 /></button></>)}
+          </div>
         </div>)}</div>
       </article>
     </div>
