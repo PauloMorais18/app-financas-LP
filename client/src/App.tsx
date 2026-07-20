@@ -39,6 +39,7 @@ import {
   Building2,
   CheckCircle2,
   CircleDollarSign,
+  Contact,
   ClipboardList,
   Database,
   Home,
@@ -46,6 +47,7 @@ import {
   LogOut,
   Menu,
   Pencil,
+  Package,
   Plus,
   RefreshCw,
   Settings,
@@ -60,17 +62,22 @@ import { supabase } from "./services/supabase";
 import type {
   AppUser,
   Company,
+  Client,
   Color,
+  Group,
   IncomeSource,
   Order,
   OrderInput,
+  Product,
   Transaction,
   TransactionInput,
 } from "./types";
 import { dateBR, money } from "./utils/format";
+import "./catalog.css";
 
 const transactionSchema = z.object({
   userId: z.string().min(1, "Selecione o usuário"),
+  groupId: z.string().min(1, "Selecione o grupo"),
   sourceId: z.string().optional(),
   date: z.string().min(1, "Informe a data"),
   description: z.string().trim().min(2, "Informe o título"),
@@ -88,6 +95,11 @@ type Session = {
   activeUserId: string;
   activeUser?: AppUser;
   setActiveUserId: (id: string) => void;
+  groups: Group[];
+  activeGroupId: string;
+  activeGroup?: Group;
+  setActiveGroupId: (id: string) => void;
+  reloadGroups: () => void;
   reloadUsers: () => void;
   logout: () => void;
 };
@@ -214,12 +226,16 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
 function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: () => void }) {
   const [toast, setToast] = useState<Toast>(),
     usersLoad = useLoad<AppUser[]>("/users", []),
+    groupsLoad = useLoad<Group[]>("/groups", []),
     [storedUserId, setStoredUserId] = useState(
       () => localStorage.getItem("finanbase-user") || authUser.id,
     ),
     activeUserId = usersLoad.data.some((user) => user.id === storedUserId)
       ? storedUserId
       : usersLoad.data[0]?.id || "";
+  const [storedGroupId, setStoredGroupId] = useState(() => localStorage.getItem("finanbase-group") || "");
+  const activeGroupId = groupsLoad.data.some((group) => group.id === storedGroupId)
+    ? storedGroupId : groupsLoad.data.find((group) => group.isDefault)?.id || groupsLoad.data[0]?.id || "";
   useEffect(() => {
     if (activeUserId && storedUserId !== activeUserId) {
       setStoredUserId(activeUserId);
@@ -230,6 +246,16 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
     setStoredUserId(id);
     localStorage.setItem("finanbase-user", id);
   };
+  useEffect(() => {
+    if (activeGroupId && storedGroupId !== activeGroupId) {
+      setStoredGroupId(activeGroupId);
+      localStorage.setItem("finanbase-group", activeGroupId);
+    }
+  }, [activeGroupId, storedGroupId]);
+  const setActiveGroupId = (id: string) => {
+    setStoredGroupId(id);
+    localStorage.setItem("finanbase-group", id);
+  };
   const notify = (message: string, error = false) => {
     setToast({ message, error });
     setTimeout(() => setToast(undefined), 3200);
@@ -239,6 +265,11 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
     activeUserId,
     activeUser: usersLoad.data.find((user) => user.id === activeUserId),
     setActiveUserId,
+    groups: groupsLoad.data,
+    activeGroupId,
+    activeGroup: groupsLoad.data.find((group) => group.id === activeGroupId),
+    setActiveGroupId,
+    reloadGroups: groupsLoad.reload,
     reloadUsers: usersLoad.reload,
     logout,
   };
@@ -249,6 +280,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
           <Route index element={<Dashboard />} />
           <Route path="dashboard" element={<Navigate to="/" replace />} />
           <Route path="usuarios" element={<UserManagement notify={notify} />} />
+          <Route path="grupos" element={<GroupManagement notify={notify} />} />
           <Route
             path="fontes-renda"
             element={<IncomeSources notify={notify} />}
@@ -272,6 +304,8 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
           <Route path="pedidos" element={<OrderQueue notify={notify} />} />
           <Route path="pedidos/novo" element={<OrderForm notify={notify} />} />
           <Route path="pedidos/:id" element={<OrderForm notify={notify} />} />
+          <Route path="cadastros/clientes" element={<CatalogManagement kind="clients" notify={notify} />} />
+          <Route path="cadastros/produtos" element={<CatalogManagement kind="products" notify={notify} />} />
           <Route
             path="movimentacoes/:id"
             element={<MovementForm notify={notify} />}
@@ -293,6 +327,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
 
 function Layout() {
   const [open, setOpen] = useState(false),
+    [registrationsOpen, setRegistrationsOpen] = useState(false),
     { users, activeUserId, activeUser, setActiveUserId, logout } = useSession();
   return (
     <div className="shell">
@@ -320,6 +355,10 @@ function Layout() {
             <BriefcaseBusiness />
             Fontes de renda
           </NavLink>
+          <NavLink to="/grupos">
+            <Users />
+            Grupos
+          </NavLink>
           <NavLink to="/ganhos">
             <ArrowUpRight />
             Ganhos
@@ -332,6 +371,13 @@ function Layout() {
             <ClipboardList />
             Pedidos
           </NavLink>
+          <button className="nav-parent" onClick={(event) => { event.stopPropagation(); setRegistrationsOpen((value) => !value); }}>
+            <Database /> Cadastros <span>{registrationsOpen ? "−" : "+"}</span>
+          </button>
+          {registrationsOpen && <div className="nav-children">
+            <NavLink to="/cadastros/clientes"><Contact />Clientes</NavLink>
+            <NavLink to="/cadastros/produtos"><Package />Produtos</NavLink>
+          </div>}
           <NavLink to="/configuracoes">
             <Settings />
             Configurações
@@ -408,10 +454,10 @@ function useLoad<T>(url: string, initial: T) {
 }
 
 function Dashboard() {
-  const { activeUserId } = useSession(),
-    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ userId: activeUserId })}`, []),
+  const { activeUserId, activeGroupId } = useSession(),
+    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
     [sourceId, setSourceId] = useState(() => localStorage.getItem(incomeSourceKey(activeUserId)) || ""),
-    params = query({ userId: activeUserId, sourceId }),
+    params = query({ groupId: activeGroupId, sourceId }),
     summary = useLoad(`/dashboard/summary?${params}`, {
       balance: 0,
       income: 0,
@@ -424,7 +470,7 @@ function Dashboard() {
       evolution: { date: string; balance: number }[];
     }>(`/dashboard/charts?${params}`, { monthly: [], evolution: [] }),
     recent = useLoad<{ data: Transaction[] }>(
-      `/transactions?${query({ userId: activeUserId, sourceId, limit: "5" })}`,
+      `/transactions?${query({ groupId: activeGroupId, sourceId, limit: "5" })}`,
       { data: [] },
     );
   useEffect(() => {
@@ -565,7 +611,7 @@ function Movements({
   type: "income" | "expense";
   notify: (message: string, error?: boolean) => void;
 }) {
-  const { activeUserId } = useSession(),
+  const { activeUserId, activeGroupId } = useSession(),
     income = type === "income",
     copy = income
       ? {
@@ -583,7 +629,7 @@ function Movements({
     load = useLoad<{
       data: Transaction[];
       summary: { totalIncome: number; totalExpense: number };
-    }>(`/transactions?${query({ userId: activeUserId, type, limit: "100" })}`, {
+    }>(`/transactions?${query({ groupId: activeGroupId, type, limit: "100" })}`, {
       data: [],
       summary: { totalIncome: 0, totalExpense: 0 },
     }),
@@ -680,9 +726,9 @@ function TransactionRows({
   actions?: boolean;
   onDelete?: (id: string) => void;
 }) {
-  const { activeUserId } = useSession(),
+  const { activeGroupId } = useSession(),
     sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ userId: activeUserId })}`,
+      `/income-sources?${query({ groupId: activeGroupId })}`,
       [],
     ),
     names = new Map(sources.data.map((source) => [source.id, source.name]));
@@ -732,7 +778,7 @@ function MovementForm({
 }) {
   const { id } = useParams(),
     navigate = useNavigate(),
-    { users, activeUserId } = useSession(),
+    { users, activeUserId, activeGroupId } = useSession(),
     [loading, setLoading] = useState(Boolean(id)),
     initialPreferences = readPreferences(activeUserId);
   const form = useForm<TransactionInput>({
@@ -740,6 +786,7 @@ function MovementForm({
       mode: "onChange",
       defaultValues: {
         userId: activeUserId,
+        groupId: activeGroupId,
         sourceId: initialPreferences.sourceId,
         date: todayBrasilia(),
         description: "",
@@ -754,9 +801,11 @@ function MovementForm({
     }),
     selectedUser = form.watch("userId"),
     sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ userId: selectedUser || activeUserId })}`,
+      `/income-sources?${query({ groupId: activeGroupId })}`,
       [],
-    );
+    ), clients = useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]),
+    products = useLoad<Product[]>(`/products?${query({groupId:activeGroupId})}`,[]);
+  const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name});form.setValue(kind==="clients"?"clientId":"productId",response.data.id);if(kind==="clients")clients.reload();else products.reload();notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   useEffect(() => {
     if (id)
       api
@@ -774,13 +823,14 @@ function MovementForm({
     if (!id && activeUserId) {
       const preferences = readPreferences(activeUserId);
       form.setValue("userId", activeUserId, { shouldValidate: true });
+      form.setValue("groupId", activeGroupId, { shouldValidate: true });
       form.setValue("sourceId", preferences.sourceId);
       form.setValue("recurring", preferences.recurring);
       form.setValue("category", preferences.category);
       form.setValue("paymentMethod", preferences.paymentMethod);
       form.setValue("status", preferences.status);
     }
-  }, [activeUserId, id]);
+  }, [activeUserId, activeGroupId, id]);
   useEffect(() => {
     if (id || sources.loading || !selectedUser) return;
     const activeSources = sources.data.filter((source) => source.active);
@@ -872,6 +922,8 @@ function MovementForm({
               <Field label="Data">
                 <input type="date" {...form.register("date")} />
               </Field>
+              <Field label="Cliente (opcional)"><div className="select-add"><select {...form.register("clientId")}><option value="">Nenhum</option>{clients.data.filter(item=>item.active).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" className="outline" onClick={()=>quickCatalog("clients")}><Plus/>Rápido</button></div></Field>
+              <Field label="Produto (opcional)"><div className="select-add"><select {...form.register("productId")} onChange={event=>{form.setValue("productId",event.target.value);const product=products.data.find(item=>item.id===event.target.value);if(product){form.setValue("description",product.name);form.setValue("value",type==="income"?product.saleValue:product.totalCost)}}}><option value="">Nenhum</option>{products.data.filter(item=>item.active).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select><button type="button" className="outline" onClick={()=>quickCatalog("products")}><Plus/>Rápido</button></div></Field>
               <Field
                 label="Usuário"
                 error={form.formState.errors.userId?.message}
@@ -944,8 +996,8 @@ const orderStatusLabel = {
 const orderSourceKey = incomeSourceKey;
 
 function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => void }) {
-  const { activeUserId } = useSession(),
-    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ userId: activeUserId })}`, []),
+  const { activeUserId, activeGroupId } = useSession(),
+    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
     [sourceId, setSourceId] = useState(() => localStorage.getItem(orderSourceKey(activeUserId)) || "");
   useEffect(() => {
     const cached = localStorage.getItem(orderSourceKey(activeUserId)) || "";
@@ -954,7 +1006,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
     setSourceId(next);
     if (next) localStorage.setItem(orderSourceKey(activeUserId), next);
   }, [activeUserId, sources.data]);
-  const orders = useLoad<Order[]>(`/orders?${query({ userId: activeUserId, sourceId })}`, []),
+  const orders = useLoad<Order[]>(`/orders?${query({ groupId: activeGroupId, sourceId })}`, []),
     changeSource = (value: string) => {
       setSourceId(value);
       localStorage.setItem(orderSourceKey(activeUserId), value);
@@ -1012,11 +1064,12 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
 }
 
 function OrderForm({ notify }: { notify: (message: string, error?: boolean) => void }) {
-  const { id } = useParams(), navigate = useNavigate(), { activeUserId } = useSession();
-  const sources = useLoad<IncomeSource[]>(`/income-sources?${query({ userId: activeUserId })}`, []);
+  const { id } = useParams(), navigate = useNavigate(), { activeUserId, activeGroupId } = useSession();
+  const sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []);
   const [values, setValues] = useState<OrderInput>({
-      userId: activeUserId, sourceId: localStorage.getItem(orderSourceKey(activeUserId)) || "",
+      userId: activeUserId, groupId: activeGroupId, sourceId: localStorage.getItem(orderSourceKey(activeUserId)) || "",
       colorId: "",
+      clientId: "", productId: "",
       title: "", customer: "", dueDate: todayBrasilia(), value: 0,
       status: "queued", observation: "",
     });
@@ -1025,7 +1078,9 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     [colorOpen, setColorOpen] = useState(false),
     [colorModal, setColorModal] = useState(false),
     [newColorName, setNewColorName] = useState("");
-  const colors = useLoad<Color[]>(`/colors?${query({ userId: activeUserId, search: colorSearch })}`, []);
+  const colors = useLoad<Color[]>(`/colors?${query({ groupId: activeGroupId, search: colorSearch })}`, []);
+  const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]), products=useLoad<Product[]>(`/products?${query({groupId:activeGroupId})}`,[]);
+  const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name});if(kind==="clients"){const item=response.data as Client;set("clientId",item.id);set("customer",item.name);clients.reload()}else{const item=response.data as Product;set("productId",item.id);set("title",item.name);set("value",item.saleValue);products.reload()}notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   useEffect(() => {
     if (id) api.get<Order>(`/orders/${id}`).then(({ data }) => {
       setValues(data);
@@ -1037,9 +1092,9 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     const cached = localStorage.getItem(orderSourceKey(activeUserId)) || "";
     const active = sources.data.filter((source) => source.active);
     const sourceId = active.some((source) => source.id === cached) ? cached : active[0]?.id || "";
-    setValues((current) => ({ ...current, userId: activeUserId, sourceId }));
+    setValues((current) => ({ ...current, userId: activeUserId, groupId: activeGroupId, sourceId }));
     if (sourceId) localStorage.setItem(orderSourceKey(activeUserId), sourceId);
-  }, [id, activeUserId, sources.loading, sources.data]);
+  }, [id, activeUserId, activeGroupId, sources.loading, sources.data]);
   const set = <K extends keyof OrderInput>(key: K, value: OrderInput[K]) => setValues((current) => ({ ...current, [key]: value }));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -1053,7 +1108,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
   const createColor = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      const response = await api.post<Color>("/colors", { userId: activeUserId, name: newColorName });
+      const response = await api.post<Color>("/colors", { userId: activeUserId, groupId: activeGroupId, name: newColorName });
       set("colorId", response.data.id);
       setColorSearch(response.data.name);
       setNewColorName("");
@@ -1068,7 +1123,8 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
       {loading ? <Empty text="Carregando..." /> : <form onSubmit={submit}>
         <div className="form-grid">
           <Field label="Pedido"><input value={values.title} onChange={(e) => set("title", e.target.value)} placeholder="Ex.: 50 peças personalizadas" required /></Field>
-          <Field label="Cliente"><input value={values.customer} onChange={(e) => set("customer", e.target.value)} placeholder="Nome do cliente" required /></Field>
+          <Field label="Cliente"><div className="select-add"><select value={values.clientId||""} onChange={e=>{set("clientId",e.target.value);const item=clients.data.find(client=>client.id===e.target.value);if(item)set("customer",item.name)}}><option value="">Selecione ou cadastre</option>{clients.data.filter(item=>item.active).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select><button type="button" className="outline" onClick={()=>quickCatalog("clients")}><Plus/>Rápido</button></div><input value={values.customer} onChange={(e) => set("customer", e.target.value)} placeholder="Nome do cliente" required /></Field>
+          <Field label="Produto"><div className="select-add"><select value={values.productId||""} onChange={e=>{set("productId",e.target.value);const item=products.data.find(product=>product.id===e.target.value);if(item){set("title",item.name);set("value",item.saleValue)}}}><option value="">Selecione ou cadastre</option>{products.data.filter(item=>item.active).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select><button type="button" className="outline" onClick={()=>quickCatalog("products")}><Plus/>Rápido</button></div></Field>
           <Field label="Fonte de renda"><select value={values.sourceId} onChange={(e) => { set("sourceId", e.target.value); localStorage.setItem(orderSourceKey(activeUserId), e.target.value); }} required><option value="">Selecione</option>{sources.data.filter((source) => source.active).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></Field>
           <Field label="Prazo"><input type="date" value={values.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></Field>
           <Field label="Cor">
@@ -1105,18 +1161,41 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
   </>;
 }
 
+function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(message:string,error?:boolean)=>void}) {
+  const {activeUserId,activeGroupId}=useSession(), isClient=kind==="clients";
+  const records=useLoad<(Client|Product)[]>(`/${kind}?${query({groupId:activeGroupId})}`,[]);
+  const [search,setSearch]=useState("");
+  const [editing,setEditing]=useState<Client|Product|null>(null), [name,setName]=useState(""), [place,setPlace]=useState(""), [phone,setPhone]=useState("");
+  const [costPerMeter,setCostPerMeter]=useState(0),[filamentMeters,setFilamentMeters]=useState(0),[saleValue,setSaleValue]=useState(0);
+  const totalCost=costPerMeter*filamentMeters;
+  const clear=()=>{setEditing(null);setName("");setPlace("");setPhone("");setCostPerMeter(0);setFilamentMeters(0);setSaleValue(0)};
+  const edit=(record:Client|Product)=>{setEditing(record);setName(record.name);if("place" in record){setPlace(record.place);setPhone(record.phone)}else{setCostPerMeter(record.costPerMeter);setFilamentMeters(record.filamentMeters);setSaleValue(record.saleValue)}};
+  const submit=async(event:FormEvent)=>{event.preventDefault();try{const payload=isClient?{userId:activeUserId,groupId:activeGroupId,name,place,phone,active:true}:{userId:activeUserId,groupId:activeGroupId,name,costPerMeter,filamentMeters,saleValue,active:true};editing?await api.put(`/${kind}/${editing.id}`,payload):await api.post(`/${kind}`,payload);notify(`${isClient?"Cliente":"Produto"} ${editing?"atualizado":"cadastrado"}.`);clear();records.reload()}catch(error){notify(errorMessage(error),true)}};
+  const remove=async(id:string)=>{if(!confirm("Excluir este cadastro?"))return;try{await api.delete(`/${kind}/${id}`);records.reload();notify("Cadastro excluído.")}catch(error){notify(errorMessage(error),true)}};
+  return <><PageHeading title={`Cadastros · ${isClient?"Clientes":"Produtos"}`} subtitle={isClient?"Nome é obrigatório; local e telefone são opcionais.":"O custo total é calculado automaticamente."}/>
+    <section className="management-grid"><article className="card form-card"><CardTitle title={editing?"Editar cadastro":"Novo cadastro"} subtitle="Preencha as informações abaixo."/><form onSubmit={submit}><div className="form-grid">
+      <Field label="Nome"><input value={name} onChange={e=>setName(e.target.value)} required autoFocus/></Field>
+      {isClient?<><Field label="Lugar (opcional)"><input value={place} onChange={e=>setPlace(e.target.value)} placeholder="Cidade, bairro ou endereço"/></Field><Field label="Telefone (opcional)"><input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(00) 00000-0000"/></Field></>:<>
+        <Field label="Custo por metro"><div className="money-input"><span>R$</span><CurrencyInput value={costPerMeter} onChange={setCostPerMeter}/></div></Field>
+        <Field label="Metros de filamento"><input type="number" min="0" step="0.01" value={filamentMeters||""} onChange={e=>setFilamentMeters(Number(e.target.value))}/></Field>
+        <Field label="Valor de venda"><div className="money-input"><span>R$</span><CurrencyInput value={saleValue} onChange={setSaleValue}/></div></Field>
+        <Field label="Custo total (automático)"><input value={money.format(totalCost)} readOnly/></Field></>}
+    </div><div className="form-actions">{editing&&<button type="button" className="outline" onClick={clear}>Cancelar</button>}<button className="primary" disabled={!name.trim()}>Salvar cadastro</button></div></form></article>
+    <article className="card"><CardTitle title={isClient?"Clientes cadastrados":"Produtos cadastrados"} subtitle={`${records.data.length} registro(s)`}/><div className="catalog-search"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Buscar ${isClient?"cliente":"produto"} por nome...`}/></div><div className="simple-list">{records.data.filter(record=>record.name.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(record=><div className="list-row" key={record.id}><div><b>{record.name}</b><small>{"place" in record?[record.place,record.phone].filter(Boolean).join(" · ")||"Somente nome":`Custo ${money.format(record.totalCost)} · Venda ${money.format(record.saleValue)}`}</small></div><div className="row-actions"><button onClick={()=>edit(record)}><Pencil/></button><button onClick={()=>remove(record.id)}><Trash2/></button></div></div>)}{!records.loading&&!records.data.length&&<Empty text="Nenhum cadastro encontrado."/>}</div></article></section></>;
+}
+
 function IncomeSources({
   notify,
 }: {
   notify: (message: string, error?: boolean) => void;
 }) {
-  const { activeUserId, activeUser } = useSession(),
+  const { activeUserId, activeUser, activeGroupId } = useSession(),
     load = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ userId: activeUserId })}`,
+      `/income-sources?${query({ groupId: activeGroupId })}`,
       [],
     ),
     companies = useLoad<Company[]>(
-      `/companies?${query({ userId: activeUserId })}`,
+      `/companies?${query({ groupId: activeGroupId })}`,
       [],
     ),
     [name, setName] = useState(""),
@@ -1135,12 +1214,14 @@ function IncomeSources({
       editingSourceId
         ? await api.put(`/income-sources/${editingSourceId}`, {
             userId: activeUserId,
+            groupId: activeGroupId,
             name,
             description,
             active: true,
           })
         : await api.post("/income-sources", {
             userId: activeUserId,
+            groupId: activeGroupId,
             name,
             description,
           });
@@ -1162,10 +1243,11 @@ function IncomeSources({
       editingCompanyId
         ? await api.put(`/companies/${editingCompanyId}`, {
             userId: activeUserId,
+            groupId: activeGroupId,
             name: companyName,
             active: true,
           })
-        : await api.post("/companies", { userId: activeUserId, name: companyName });
+        : await api.post("/companies", { userId: activeUserId, groupId: activeGroupId, name: companyName });
       setCompanyName("");
       setEditingCompanyId(undefined);
       companies.reload();
@@ -1389,6 +1471,48 @@ function UserManagement({
   );
 }
 
+function GroupManagement({ notify }: { notify: (message: string, error?: boolean) => void }) {
+  const { groups, activeGroupId, setActiveGroupId, reloadGroups } = useSession();
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const create = async (event: FormEvent) => {
+    event.preventDefault(); setLoading(true);
+    try {
+      const response = await api.post<Group>("/groups", { name });
+      await reloadGroups(); setActiveGroupId(response.data.id); setName(""); notify("Grupo criado com sucesso.");
+    } catch (error) { notify(errorMessage(error), true); } finally { setLoading(false); }
+  };
+  const join = async (event: FormEvent) => {
+    event.preventDefault(); setLoading(true);
+    try {
+      const response = await api.post<Group>("/groups/join", { code });
+      await reloadGroups(); setActiveGroupId(response.data.id); setCode(""); notify("Você entrou no grupo.");
+    } catch (error) { notify(errorMessage(error), true); } finally { setLoading(false); }
+  };
+  return <>
+    <PageHeading title="Grupos" subtitle="Compartilhe movimentações com outras pessoas usando um código." />
+    <div className="settings-grid source-layout">
+      <div className="group-forms">
+        <article className="card form-card"><CardTitle title="Criar grupo" subtitle="Você será o responsável pelo novo grupo." />
+          <form onSubmit={create}><Field label="Nome do grupo"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Família" minLength={2} required /></Field>
+            <div className="form-actions"><button className="primary" disabled={loading}><Plus /> Criar grupo</button></div></form>
+        </article>
+        <article className="card form-card"><CardTitle title="Entrar em um grupo" subtitle="Peça o código a um integrante." />
+          <form onSubmit={join}><Field label="Código"><input className="code-input" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="A1B2C3D4" required /></Field>
+            <div className="form-actions"><button className="primary" disabled={loading}><LogIn /> Entrar</button></div></form>
+        </article>
+      </div>
+      <article className="card table-card"><CardTitle title="Meus grupos" subtitle={`${groups.length} grupo(s) disponível(is)`} />
+        <div className="source-list">{groups.map((group) => <div className={`source-item ${group.id === activeGroupId ? "selected" : ""}`} key={group.id}>
+          <span><Users /></span><div><b>{group.name}</b><small>Código: <strong>{group.code}</strong> · {group.memberCount} membro(s){group.isDefault ? " · Padrão" : ""}</small></div>
+          <button className="outline" disabled={group.id === activeGroupId} onClick={() => { setActiveGroupId(group.id); notify("Grupo de exibição alterado."); }}>{group.id === activeGroupId ? "Em uso" : "Usar"}</button>
+        </div>)}</div>
+      </article>
+    </div>
+  </>;
+}
+
 type SheetsSettings = {
   workbookId: string;
   worksheet: string;
@@ -1401,6 +1525,7 @@ function Configuration({
 }: {
   notify: (message: string, error?: boolean) => void;
 }) {
+  const { groups, activeGroupId, setActiveGroupId } = useSession();
   const load = useLoad<SheetsSettings>("/settings/excel", {
       workbookId: "",
       worksheet: "Movimentacoes",
@@ -1432,6 +1557,14 @@ function Configuration({
         title="Configurações"
         subtitle="Verifique a conexão segura com o Supabase."
       />
+      <article className="card display-settings">
+        <CardTitle title="Exibição geral da aplicação" subtitle="Escolha de qual grupo o aplicativo deve buscar e salvar os dados." />
+        <Field label="Grupo em exibição">
+          <select value={activeGroupId} onChange={(event) => { setActiveGroupId(event.target.value); notify("Grupo de exibição alterado."); }}>
+            {groups.map((group) => <option key={group.id} value={group.id}>{group.name} ({group.code})</option>)}
+          </select>
+        </Field>
+      </article>
       <article className="card connection-card">
         <span className={connected ? "connected" : ""}>
           {connected ? <CheckCircle2 /> : <Database />}

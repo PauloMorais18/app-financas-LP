@@ -14,9 +14,19 @@ export interface User {
   createdAt: string;
   updatedAt: string;
 }
+export interface Group {
+  id: string;
+  name: string;
+  code: string;
+  ownerId: string;
+  isDefault: boolean;
+  memberCount: number;
+  createdAt: string;
+}
 export interface IncomeSource {
   id: string;
   userId: string;
+  groupId?: string;
   name: string;
   description: string;
   active: boolean;
@@ -26,6 +36,7 @@ export interface IncomeSource {
 export interface Company {
   id: string;
   userId: string;
+  groupId?: string;
   name: string;
   active: boolean;
   createdAt: string;
@@ -35,6 +46,7 @@ export type OrderStatus = "queued" | "production" | "ready" | "delivered" | "can
 export interface Order {
   id: string;
   userId: string;
+  groupId?: string;
   sourceId: string;
   colorId: string;
   title: string;
@@ -49,6 +61,7 @@ export interface Order {
 export interface Color {
   id: string;
   userId: string;
+  groupId?: string;
   name: string;
   createdAt: string;
   updatedAt: string;
@@ -61,9 +74,12 @@ type UserRow = {
   criado_em: unknown;
   atualizado_em: unknown;
 } & SheetRecord;
+type GroupRow = { id: unknown; nome: unknown; codigo: unknown; proprietario_id: unknown; padrao: unknown; criado_em: unknown } & SheetRecord;
+type GroupMemberRow = { id: unknown; grupo_id: unknown; usuario_id: unknown; criado_em: unknown } & SheetRecord;
 type SourceRow = {
   id: unknown;
   usuario_id: unknown;
+  grupo_id?: unknown;
   nome: unknown;
   descricao: unknown;
   ativo: unknown;
@@ -73,6 +89,7 @@ type SourceRow = {
 type CompanyRow = {
   id: unknown;
   usuario_id: unknown;
+  grupo_id?: unknown;
   nome: unknown;
   ativo: unknown;
   criado_em: unknown;
@@ -81,6 +98,7 @@ type CompanyRow = {
 type OrderRow = {
   id: unknown;
   usuario_id: unknown;
+  grupo_id?: unknown;
   fonte_renda_id: unknown;
   cor_id: unknown;
   titulo: unknown;
@@ -95,6 +113,7 @@ type OrderRow = {
 type ColorRow = {
   id: unknown;
   usuario_id: unknown;
+  grupo_id?: unknown;
   nome: unknown;
   criado_em: unknown;
   atualizado_em: unknown;
@@ -102,6 +121,7 @@ type ColorRow = {
 type TransactionRow = {
   id: unknown;
   usuario_id: unknown;
+  grupo_id?: unknown;
   data: unknown;
   descricao: unknown;
   categoria: unknown;
@@ -149,6 +169,59 @@ let demoSources: IncomeSource[] = [
 let demoCompanies: Company[] = [];
 let demoOrders: Order[] = [];
 let demoColors: Color[] = [];
+let demoGroups: Group[] = [];
+let demoGroupMembers: { groupId: string; userId: string }[] = [];
+const groupCode = () => randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
+export async function ensureDefaultGroup(userId: string, userName: string) {
+  const groups = googleSheetsService.isConfigured()
+    ? (await googleSheetsService.listRecords<GroupRow>("Grupos")).map((row) => ({ id: String(row.id), name: String(row.nome), code: String(row.codigo), ownerId: String(row.proprietario_id), isDefault: bool(row.padrao), memberCount: 1, createdAt: sheetDate(row.criado_em) }))
+    : demoGroups;
+  let group = groups.find((item) => item.ownerId === userId && item.isDefault);
+  if (!group) {
+    group = { id: `grp_${randomUUID()}`, name: `Grupo de ${userName}`, code: groupCode(), ownerId: userId, isDefault: true, memberCount: 1, createdAt: today() };
+    if (googleSheetsService.isConfigured()) {
+      await googleSheetsService.addRecord("Grupos", { id: group.id, nome: group.name, codigo: group.code, proprietario_id: userId, padrao: true, criado_em: group.createdAt });
+      await googleSheetsService.addRecord("MembrosGrupos", { id: `mem_${randomUUID()}`, grupo_id: group.id, usuario_id: userId, criado_em: today() });
+    } else { demoGroups.push(group); demoGroupMembers.push({ groupId: group.id, userId }); }
+  }
+  return group;
+}
+export async function listGroups(userId: string, userName = "Usuário") {
+  const defaultGroup = await ensureDefaultGroup(userId, userName);
+  await backfillDefaultGroup(userId, defaultGroup.id);
+  if (googleSheetsService.isConfigured()) {
+    const groups = (await googleSheetsService.listRecords<GroupRow>("Grupos")).map((row) => ({ id: String(row.id), name: String(row.nome), code: String(row.codigo), ownerId: String(row.proprietario_id), isDefault: bool(row.padrao), memberCount: 0, createdAt: sheetDate(row.criado_em) }));
+    const members = await googleSheetsService.listRecords<GroupMemberRow>("MembrosGrupos");
+    return groups.filter((group) => members.some((member) => String(member.grupo_id) === group.id && String(member.usuario_id) === userId)).map((group) => ({ ...group, memberCount: members.filter((member) => String(member.grupo_id) === group.id).length }));
+  }
+  return demoGroups.filter((group) => demoGroupMembers.some((member) => member.groupId === group.id && member.userId === userId))
+    .map((group) => ({ ...group, memberCount: demoGroupMembers.filter((member) => member.groupId === group.id).length }));
+}
+export async function createGroup(userId: string, name: string) {
+  const group: Group = { id: `grp_${randomUUID()}`, name, code: groupCode(), ownerId: userId, isDefault: false, memberCount: 1, createdAt: today() };
+  if (googleSheetsService.isConfigured()) {
+    await googleSheetsService.addRecord("Grupos", { id: group.id, nome: name, codigo: group.code, proprietario_id: userId, padrao: false, criado_em: group.createdAt });
+    await googleSheetsService.addRecord("MembrosGrupos", { id: `mem_${randomUUID()}`, grupo_id: group.id, usuario_id: userId, criado_em: today() });
+  } else { demoGroups.push(group); demoGroupMembers.push({ groupId: group.id, userId }); }
+  return group;
+}
+export async function joinGroup(userId: string, code: string) {
+  if (googleSheetsService.isConfigured()) {
+    const group = (await googleSheetsService.listRecords<GroupRow>("Grupos")).find((item) => String(item.codigo).toUpperCase() === code.trim().toUpperCase());
+    if (!group) throw Object.assign(new Error("Código de grupo não encontrado."), { status: 404 });
+    const members = await googleSheetsService.listRecords<GroupMemberRow>("MembrosGrupos");
+    if (!members.some((item) => String(item.grupo_id) === String(group.id) && String(item.usuario_id) === userId)) await googleSheetsService.addRecord("MembrosGrupos", { id: `mem_${randomUUID()}`, grupo_id: group.id, usuario_id: userId, criado_em: today() });
+    return { id: String(group.id), name: String(group.nome), code: String(group.codigo), ownerId: String(group.proprietario_id), isDefault: bool(group.padrao), memberCount: members.filter((item) => String(item.grupo_id) === String(group.id)).length + 1, createdAt: sheetDate(group.criado_em) };
+  }
+  const group = demoGroups.find((item) => item.code === code.trim().toUpperCase());
+  if (!group) throw Object.assign(new Error("Código de grupo não encontrado."), { status: 404 });
+  if (!demoGroupMembers.some((item) => item.groupId === group.id && item.userId === userId)) demoGroupMembers.push({ groupId: group.id, userId });
+  return { ...group, memberCount: demoGroupMembers.filter((item) => item.groupId === group.id).length };
+}
+export async function isGroupMember(userId: string, groupId: string) {
+  if (googleSheetsService.isConfigured()) return (await googleSheetsService.listRecords<GroupMemberRow>("MembrosGrupos")).some((item) => String(item.usuario_id) === userId && String(item.grupo_id) === groupId);
+  return demoGroupMembers.some((item) => item.userId === userId && item.groupId === groupId);
+}
 function today() {
   const parts = new Intl.DateTimeFormat("pt-BR", {
     timeZone: "America/Sao_Paulo",
@@ -177,6 +250,7 @@ const sheetDate = (value: unknown) => {
 const transactionFromRow = (row: TransactionRow): Transaction => ({
   id: String(row.id || ""),
   userId: String(row.usuario_id || ""),
+  groupId: String(row.grupo_id || ""),
   sourceId: String(row.fonte_renda_id || ""),
   companyId: String(row.empresa_id || ""),
   date: sheetDate(row.data),
@@ -199,6 +273,7 @@ const transactionFromRow = (row: TransactionRow): Transaction => ({
 const transactionToRow = (transaction: Transaction): TransactionRow => ({
   id: transaction.id,
   usuario_id: transaction.userId,
+  grupo_id: transaction.groupId || "",
   fonte_renda_id: transaction.sourceId || "",
   empresa_id: transaction.companyId || "",
   data: transaction.date,
@@ -232,6 +307,7 @@ const userToRow = (user: User): UserRow => ({
 const sourceFromRow = (row: SourceRow): IncomeSource => ({
   id: String(row.id || ""),
   userId: String(row.usuario_id || ""),
+  groupId: String(row.grupo_id || ""),
   name: String(row.nome || ""),
   description: String(row.descricao || ""),
   active: bool(row.ativo),
@@ -241,6 +317,7 @@ const sourceFromRow = (row: SourceRow): IncomeSource => ({
 const sourceToRow = (source: IncomeSource): SourceRow => ({
   id: source.id,
   usuario_id: source.userId,
+  grupo_id: source.groupId || "",
   nome: source.name,
   descricao: source.description,
   ativo: source.active,
@@ -250,6 +327,7 @@ const sourceToRow = (source: IncomeSource): SourceRow => ({
 const companyFromRow = (row: CompanyRow): Company => ({
   id: String(row.id || ""),
   userId: String(row.usuario_id || ""),
+  groupId: String(row.grupo_id || ""),
   name: String(row.nome || ""),
   active: bool(row.ativo),
   createdAt: sheetDate(row.criado_em),
@@ -258,6 +336,7 @@ const companyFromRow = (row: CompanyRow): Company => ({
 const companyToRow = (company: Company): CompanyRow => ({
   id: company.id,
   usuario_id: company.userId,
+  grupo_id: company.groupId || "",
   nome: company.name,
   ativo: company.active,
   criado_em: company.createdAt,
@@ -266,6 +345,7 @@ const companyToRow = (company: Company): CompanyRow => ({
 const orderFromRow = (row: OrderRow): Order => ({
   id: String(row.id || ""),
   userId: String(row.usuario_id || ""),
+  groupId: String(row.grupo_id || ""),
   sourceId: String(row.fonte_renda_id || ""),
   colorId: String(row.cor_id || ""),
   title: String(row.titulo || ""),
@@ -282,6 +362,7 @@ const orderFromRow = (row: OrderRow): Order => ({
 const orderToRow = (order: Order): OrderRow => ({
   id: order.id,
   usuario_id: order.userId,
+  grupo_id: order.groupId || "",
   fonte_renda_id: order.sourceId,
   cor_id: order.colorId,
   titulo: order.title,
@@ -296,6 +377,7 @@ const orderToRow = (order: Order): OrderRow => ({
 const colorFromRow = (row: ColorRow): Color => ({
   id: String(row.id || ""),
   userId: String(row.usuario_id || ""),
+  groupId: String(row.grupo_id || ""),
   name: String(row.nome || ""),
   createdAt: sheetDate(row.criado_em),
   updatedAt: sheetDate(row.atualizado_em),
@@ -303,10 +385,33 @@ const colorFromRow = (row: ColorRow): Color => ({
 const colorToRow = (color: Color): ColorRow => ({
   id: color.id,
   usuario_id: color.userId,
+  grupo_id: color.groupId || "",
   nome: color.name,
   criado_em: color.createdAt,
   atualizado_em: color.updatedAt,
 });
+
+async function backfillDefaultGroup(userId: string, groupId: string) {
+  if (!googleSheetsService.isConfigured()) {
+    demo = demo.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
+    demoSources = demoSources.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
+    demoCompanies = demoCompanies.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
+    demoOrders = demoOrders.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
+    demoColors = demoColors.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
+    return;
+  }
+  const collections = [
+    ["Movimentacoes", await list(), transactionToRow],
+    ["FontesRenda", await listSources(), sourceToRow],
+    ["Empresas", await listCompanies(), companyToRow],
+    ["Pedidos", await listOrders(), orderToRow],
+    ["Cores", await listColors(), colorToRow],
+  ] as const;
+  for (const [sheet, items, toRow] of collections) {
+    for (const item of items as any[]) if (item.userId === userId && !item.groupId)
+      await googleSheetsService.updateRecord(sheet, item.id, (toRow as (value: any) => SheetRecord)({ ...item, groupId }));
+  }
+}
 
 export async function initialize() {
   if (googleSheetsService.isConfigured()) return googleSheetsService.connect();
@@ -436,12 +541,14 @@ export async function listSources() {
 }
 export async function createSource(input: {
   userId: string;
+  groupId?: string;
   name: string;
   description: string;
 }) {
   const source: IncomeSource = {
     id: `src_${randomUUID()}`,
     userId: input.userId,
+    groupId: input.groupId,
     name: input.name,
     description: input.description,
     active: true,
@@ -457,7 +564,7 @@ export async function createSource(input: {
 }
 export async function updateSource(
   id: string,
-  input: { userId: string; name: string; description: string; active: boolean },
+  input: { userId: string; groupId?: string; name: string; description: string; active: boolean },
 ) {
   const source: IncomeSource = {
     id,
@@ -500,10 +607,11 @@ export async function listCompanies() {
     companyFromRow,
   );
 }
-export async function createCompany(input: { userId: string; name: string }) {
+export async function createCompany(input: { userId: string; groupId?: string; name: string }) {
   const company: Company = {
     id: `emp_${randomUUID()}`,
     userId: input.userId,
+    groupId: input.groupId,
     name: input.name,
     active: true,
     createdAt: today(),
@@ -594,10 +702,11 @@ export async function listColors() {
   if (!googleSheetsService.isConfigured()) return [...demoColors];
   return (await googleSheetsService.listRecords<ColorRow>("Cores")).map(colorFromRow);
 }
-export async function createColor(input: { userId: string; name: string }) {
+export async function createColor(input: { userId: string; groupId?: string; name: string }) {
   const color: Color = {
     id: `cor_${randomUUID()}`,
     userId: input.userId,
+    groupId: input.groupId,
     name: input.name,
     createdAt: today(),
     updatedAt: today(),

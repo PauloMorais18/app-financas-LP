@@ -1,3 +1,20 @@
 import { z } from "zod";
-export const transactionSchema=z.object({userId:z.string().trim().min(1),sourceId:z.string().trim().optional().default(""),companyId:z.string().trim().optional().default(""),date:z.string().date(),description:z.string().trim().min(2).max(120),category:z.string().trim().min(2).max(60).default("Outros"),type:z.enum(["income","expense"]),value:z.coerce.number().positive(),paymentMethod:z.string().trim().min(2).max(60).default("Não informado"),status:z.enum(["paid","pending","cancelled"]).default("paid"),observation:z.string().trim().max(500).optional().default(""),recurring:z.boolean().default(false)});
-export const querySchema=z.object({search:z.string().optional(),userId:z.string().optional(),sourceId:z.string().optional(),type:z.enum(["income","expense"]).optional(),category:z.string().optional(),paymentMethod:z.string().optional(),status:z.enum(["paid","pending","cancelled"]).optional(),startDate:z.string().optional(),endDate:z.string().optional(),minValue:z.coerce.number().optional(),maxValue:z.coerce.number().optional(),sortBy:z.enum(["date","description","category","type","value","status"]).default("date"),sortOrder:z.enum(["asc","desc"]).default("desc"),page:z.coerce.number().int().positive().default(1),limit:z.coerce.number().int().positive().max(100).default(10)});
+
+export const transactionSchema = z.object({
+  userId: z.string().trim().min(1), groupId: z.string().trim().min(1),
+  sourceId: z.string().trim().optional().default(""), companyId: z.string().trim().optional().default(""),
+  date: z.string().date(), description: z.string().trim().min(2).max(120),
+  category: z.string().trim().min(2).max(60).default("Outros"), type: z.enum(["income", "expense"]),
+  value: z.coerce.number().positive(), paymentMethod: z.string().trim().min(2).max(60).default("Não informado"),
+  status: z.enum(["paid", "pending", "cancelled"]).default("paid"),
+  observation: z.string().trim().max(500).optional().default(""), recurring: z.boolean().default(false),
+});
+export const querySchema = z.object({
+  search: z.string().optional(), userId: z.string().optional(), groupId: z.string().optional(), sourceId: z.string().optional(),
+  type: z.enum(["income", "expense"]).optional(), category: z.string().optional(), paymentMethod: z.string().optional(),
+  status: z.enum(["paid", "pending", "cancelled"]).optional(), startDate: z.string().optional(), endDate: z.string().optional(),
+  minValue: z.coerce.number().optional(), maxValue: z.coerce.number().optional(),
+  sortBy: z.enum(["date", "description", "category", "type", "value", "status"]).default("date"),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"), page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(10),
+});

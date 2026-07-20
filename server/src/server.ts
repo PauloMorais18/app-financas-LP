@@ -11,6 +11,7 @@ import type { Transaction } from "./types/transaction.js";
 const app = express();
 const orderSchema = z.object({
   userId: z.string().trim().min(1),
+  groupId: z.string().trim().min(1),
   sourceId: z.string().trim().min(1),
   colorId: z.string().trim().default(""),
   title: z.string().trim().min(2).max(120),
@@ -103,6 +104,29 @@ app.use("/api", (req, res, next) => {
   res.locals.auth = session;
   next();
 });
+app.get("/api/groups", safe(async (_req, res) => {
+  const auth = res.locals.auth as AuthPayload;
+  res.json(await store.listGroups(auth.userId, auth.name));
+}));
+app.post("/api/groups", safe(async (req, res) => {
+  const auth = res.locals.auth as AuthPayload;
+  const name = String(req.body?.name || "").trim();
+  if (name.length < 2) return res.status(400).json({ message: "Informe o nome do grupo." });
+  res.status(201).json(await store.createGroup(auth.userId, name));
+}));
+app.post("/api/groups/join", safe(async (req, res) => {
+  const auth = res.locals.auth as AuthPayload;
+  const code = String(req.body?.code || "").trim();
+  if (!code) return res.status(400).json({ message: "Informe o código do grupo." });
+  res.json(await store.joinGroup(auth.userId, code));
+}));
+app.use("/api", safe(async (req, res, next) => {
+  const groupId = String(req.body?.groupId || req.query.groupId || "");
+  if (!groupId) return next();
+  const auth = res.locals.auth as AuthPayload;
+  if (!(await store.isGroupMember(auth.userId, groupId))) return res.status(403).json({ message: "Você não participa deste grupo." });
+  next();
+}));
 app.get(
   "/api/settings/excel",
   safe(async (_q, r) => r.json(await store.publicSettings())),
@@ -170,8 +194,9 @@ app.get(
   "/api/income-sources",
   safe(async (req, res) => {
     const userId = String(req.query.userId || "");
+    const groupId = String(req.query.groupId || "");
     const data = (await store.listSources()).filter(
-      (source) => !userId || source.userId === userId,
+      (source) => (!userId || source.userId === userId) && (!groupId || source.groupId === groupId),
     );
     res.json(data);
   }),
@@ -181,6 +206,7 @@ app.post(
   safe(async (req, res) => {
     const input = req.body as {
       userId?: string;
+      groupId?: string;
       name?: string;
       description?: string;
     };
@@ -195,6 +221,7 @@ app.post(
       .json(
         await store.createSource({
           userId: input.userId,
+          groupId: input.groupId,
           name: input.name.trim(),
           description: String(input.description || "").trim(),
         }),
@@ -206,6 +233,7 @@ app.put(
   safe(async (req, res) => {
     const input = req.body as {
       userId?: string;
+      groupId?: string;
       name?: string;
       description?: string;
       active?: boolean;
@@ -216,6 +244,7 @@ app.put(
       return res.status(400).json({ message: "Usuário não encontrado." });
     res.json(await store.updateSource(String(req.params.id), {
       userId: input.userId,
+      groupId: input.groupId,
       name: input.name.trim(),
       description: String(input.description || "").trim(),
       active: input.active ?? true,
@@ -245,8 +274,9 @@ app.get(
   "/api/companies",
   safe(async (req, res) => {
     const userId = String(req.query.userId || "");
+    const groupId = String(req.query.groupId || "");
     const data = (await store.listCompanies()).filter(
-      (company) => !userId || company.userId === userId,
+      (company) => (!userId || company.userId === userId) && (!groupId || company.groupId === groupId),
     );
     res.json(data);
   }),
@@ -254,13 +284,14 @@ app.get(
 app.post(
   "/api/companies",
   safe(async (req, res) => {
-    const input = req.body as { userId?: string; name?: string };
+    const input = req.body as { userId?: string; groupId?: string; name?: string };
     if (!input.userId || !input.name?.trim())
       return res.status(400).json({ message: "Informe o usuário e o nome da empresa." });
     if (!(await store.listUsers()).some((user) => user.id === input.userId))
       return res.status(400).json({ message: "Usuário não encontrado." });
     res.status(201).json(await store.createCompany({
       userId: input.userId,
+      groupId: input.groupId,
       name: input.name.trim(),
     }));
   }),
@@ -296,10 +327,11 @@ app.get(
   "/api/colors",
   safe(async (req, res) => {
     const userId = String(req.query.userId || "");
+    const groupId = String(req.query.groupId || "");
     const search = normalizedText(String(req.query.search || "").trim());
     const data = (await store.listColors())
       .filter((color) =>
-        (!userId || color.userId === userId) &&
+        (!userId || color.userId === userId) && (!groupId || color.groupId === groupId) &&
         (!search || normalizedText(color.name).includes(search)),
       )
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"))
@@ -310,7 +342,7 @@ app.get(
 app.post(
   "/api/colors",
   safe(async (req, res) => {
-    const input = req.body as { userId?: string; name?: string };
+    const input = req.body as { userId?: string; groupId?: string; name?: string };
     if (!input.userId || !input.name?.trim())
       return res.status(400).json({ message: "Informe o usuário e o nome da cor." });
     if (!(await store.listUsers()).some((user) => user.id === input.userId))
@@ -319,7 +351,7 @@ app.post(
       (color) => color.userId === input.userId && normalizedText(color.name) === normalizedText(input.name!.trim()),
     );
     if (duplicate) return res.status(409).json({ message: "Esta cor já está cadastrada." });
-    res.status(201).json(await store.createColor({ userId: input.userId, name: input.name.trim() }));
+    res.status(201).json(await store.createColor({ userId: input.userId, groupId: input.groupId, name: input.name.trim() }));
   }),
 );
 app.get(
@@ -344,11 +376,12 @@ app.get(
   "/api/orders",
   safe(async (req, res) => {
     const userId = String(req.query.userId || "");
+    const groupId = String(req.query.groupId || "");
     const sourceId = String(req.query.sourceId || "");
     const status = String(req.query.status || "");
     const data = (await store.listOrders())
       .filter((order) =>
-        (!userId || order.userId === userId) &&
+        (!userId || order.userId === userId) && (!groupId || order.groupId === groupId) &&
         (!sourceId || order.sourceId === sourceId) &&
         (!status || order.status === status),
       )
@@ -413,6 +446,7 @@ app.get(
         (!q.search ||
           t.description.toLowerCase().includes(q.search.toLowerCase())) &&
         (!q.userId || t.userId === q.userId) &&
+        (!q.groupId || t.groupId === q.groupId) &&
         (!q.sourceId || t.sourceId === q.sourceId) &&
         (!q.type || t.type === q.type) &&
         (!q.category || t.category === q.category) &&
@@ -537,10 +571,11 @@ const recurringProjection = (items: Transaction[]) => {
     return copies;
   });
 };
-const dashboard = async (userId = "", sourceId = "") => {
+const dashboard = async (userId = "", sourceId = "", groupId = "") => {
   const source = (await store.list()).filter(
       (item) =>
         (!userId || item.userId === userId) &&
+        (!groupId || item.groupId === groupId) &&
         (!sourceId || item.sourceId === sourceId),
     ),
     all = recurringProjection(source),
@@ -575,6 +610,7 @@ app.get(
         await dashboard(
           String(q.query.userId || ""),
           String(q.query.sourceId || ""),
+          String(q.query.groupId || ""),
         )
       ).summary,
     ),
@@ -586,6 +622,7 @@ app.get(
     const { all } = await dashboard(
       String(q.query.userId || ""),
       String(q.query.sourceId || ""),
+      String(q.query.groupId || ""),
     );
     const valid = all.filter((t) => t.status !== "cancelled");
     const group = (key: (t: Transaction) => string) =>
