@@ -1020,11 +1020,11 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
       setSourceId(value);
       localStorage.setItem(orderSourceKey(activeUserId), value);
     },
-    updateStatus = async (order: Order, status: Order["status"]) => {
+    updateOrder = async (order: Order, changes: Partial<Pick<Order, "status" | "paid">>) => {
       try {
-        await api.put(`/orders/${order.id}`, { ...order, status });
+        await api.put(`/orders/${order.id}`, { ...order, ...changes, paid: changes.status === "delivered" ? true : (changes.paid ?? order.paid) });
         orders.reload();
-        notify("Status do pedido atualizado.");
+        notify(changes.status === "delivered" ? "Pedido entregue, pago e ganho lançado." : "Pedido atualizado.");
       } catch (error) { notify(errorMessage(error), true); }
     },
     remove = async (id: string) => {
@@ -1071,8 +1071,13 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
         <small>Prazo: {dateBR(order.dueDate)}</small>
         {order.colorName && <small>Cor: {order.colorName}</small>}
         {order.observation && <small>{order.observation}</small>}
+        <label className={`order-paid ${order.paid ? "checked" : ""}`}>
+          <input type="checkbox" checked={order.paid} disabled={order.status === "delivered"} onChange={(event) => updateOrder(order, { paid: event.target.checked })} />
+          <span>{order.paid ? "Pago" : "Não pago"}</span>
+          {order.status === "delivered" && <small>automático ao entregar</small>}
+        </label>
         <div className="order-actions">
-          <select value={order.status} onChange={(event) => updateStatus(order, event.target.value as Order["status"])} aria-label="Status do pedido">
+          <select value={order.status} onChange={(event) => updateOrder(order, { status: event.target.value as Order["status"] })} aria-label="Status do pedido">
             {Object.entries(orderStatusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
           <NavLink className="icon-button" to={`/pedidos/${order.id}`} aria-label="Editar pedido"><Pencil /></NavLink>
@@ -1092,7 +1097,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
       colorId: "",
       clientId: "", productId: "", productIds: [], productItems: [],
       title: "", customer: "", dueDate: todayBrasilia(), value: 0,
-      status: "queued", observation: "",
+      status: "queued", paid: false, observation: "",
     });
   const [loading, setLoading] = useState(Boolean(id)),
     [colorSearch, setColorSearch] = useState(""),
@@ -1171,7 +1176,8 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
             </div>
           </Field>
           <Field label="Valor total (automático)"><div className="money-input automatic-order-value"><span>R$</span><input value={values.value.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})} readOnly aria-label="Valor total calculado pelos produtos" /></div></Field>
-          <Field label="Status"><select value={values.status} onChange={(e) => set("status", e.target.value as Order["status"])}>{Object.entries(orderStatusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+          <Field label="Status"><select value={values.status} onChange={(e) => { const status=e.target.value as Order["status"]; setValues((current)=>({...current,status,paid:status==="delivered"?true:current.paid})); }}>{Object.entries(orderStatusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+          <label className={`order-paid order-paid-form ${values.paid ? "checked" : ""}`}><input type="checkbox" checked={values.paid} disabled={values.status === "delivered"} onChange={(e)=>set("paid",e.target.checked)} /><span>{values.paid ? "Pedido pago" : "Pedido não pago"}</span>{values.status === "delivered" && <small>Pedidos entregues são pagos automaticamente.</small>}</label>
           <Field label="Observações" wide><textarea rows={4} value={values.observation} onChange={(e) => set("observation", e.target.value)} /></Field>
         </div>
         <div className="form-actions"><button type="button" className="outline" onClick={() => navigate("/pedidos")}>Cancelar</button><button className="primary" disabled={!values.sourceId || !values.title.trim() || !values.customer.trim()}>{id ? "Salvar alterações" : "Cadastrar pedido"}</button></div>
