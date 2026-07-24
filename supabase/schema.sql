@@ -304,6 +304,14 @@ end;
 $$;
 drop policy if exists members_group_select on public.group_members;
 create policy members_group_select on public.group_members for select to authenticated using(user_id=auth.uid() or public.is_group_member(group_id));
+drop policy if exists profiles_group_select on public.profiles;
+create policy profiles_group_select on public.profiles for select to authenticated using (
+  id=auth.uid() or exists (
+    select 1 from public.group_members selected_membership
+    join public.group_members my_membership on my_membership.group_id=selected_membership.group_id
+    where selected_membership.user_id=profiles.id and my_membership.user_id=auth.uid()
+  )
+);
 drop policy if exists members_self_insert on public.group_members;
 create policy members_self_insert on public.group_members for insert to authenticated with check(user_id=auth.uid() and (exists(select 1 from public.groups where id=group_id and owner_id=auth.uid())));
 
@@ -325,7 +333,7 @@ begin
     execute format('drop policy if exists group_update on public.%I',table_name);
     execute format('drop policy if exists group_delete on public.%I',table_name);
     execute format('create policy group_select on public.%I for select to authenticated using (public.is_group_member(group_id))',table_name);
-    execute format('create policy group_insert on public.%I for insert to authenticated with check (public.is_group_member(group_id) and user_id=auth.uid())',table_name);
+    execute format('create policy group_insert on public.%1$I for insert to authenticated with check (public.is_group_member(group_id) and exists(select 1 from public.group_members where group_members.group_id=public.%1$I.group_id and group_members.user_id=public.%1$I.user_id))',table_name);
     execute format('create policy group_update on public.%I for update to authenticated using (public.is_group_member(group_id)) with check (public.is_group_member(group_id))',table_name);
     execute format('create policy group_delete on public.%I for delete to authenticated using (public.is_group_member(group_id))',table_name);
     execute format('drop trigger if exists keep_row_author_before_update on public.%I',table_name);

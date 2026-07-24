@@ -228,18 +228,18 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
 }
 
 function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: () => void }) {
-  const [toast, setToast] = useState<Toast>(),
-    usersLoad = useLoad<AppUser[]>("/users", []),
-    groupsLoad = useLoad<Group[]>("/groups", []),
-    [storedUserId, setStoredUserId] = useState(
-      () => localStorage.getItem("finanbase-user") || authUser.id,
-    ),
-    activeUserId = usersLoad.data.some((user) => user.id === storedUserId)
-      ? storedUserId
-      : usersLoad.data[0]?.id || "";
+  const [toast, setToast] = useState<Toast>();
+  const groupsLoad = useLoad<Group[]>("/groups", []);
   const [storedGroupId, setStoredGroupId] = useState(() => localStorage.getItem("finanbase-group") || "");
   const activeGroupId = groupsLoad.data.some((group) => group.id === storedGroupId)
     ? storedGroupId : groupsLoad.data.find((group) => group.isDefault)?.id || groupsLoad.data[0]?.id || "";
+  const usersLoad = useLoad<AppUser[]>(activeGroupId ? `/users?${query({ groupId: activeGroupId })}` : "/users", []);
+  const [storedUserId, setStoredUserId] = useState(
+    () => localStorage.getItem("finanbase-user") || authUser.id,
+  );
+  const activeUserId = usersLoad.data.some((user) => user.id === storedUserId)
+    ? storedUserId
+    : usersLoad.data.find((user) => user.id === authUser.id)?.id || usersLoad.data[0]?.id || "";
   useEffect(() => {
     if (activeUserId && storedUserId !== activeUserId) {
       setStoredUserId(activeUserId);
@@ -459,9 +459,9 @@ function useLoad<T>(url: string, initial: T) {
 
 function Dashboard() {
   const { activeUserId, activeGroupId } = useSession(),
-    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
+    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`, []),
     [sourceId, setSourceId] = useState(() => localStorage.getItem(incomeSourceKey(activeUserId)) || ""),
-    params = query({ groupId: activeGroupId, sourceId }),
+    params = query({ groupId: activeGroupId, userId: activeUserId, sourceId }),
     summary = useLoad(`/dashboard/summary?${params}`, {
       balance: 0,
       income: 0,
@@ -474,7 +474,7 @@ function Dashboard() {
       evolution: { date: string; balance: number }[];
     }>(`/dashboard/charts?${params}`, { monthly: [], evolution: [] }),
     recent = useLoad<{ data: Transaction[] }>(
-      `/transactions?${query({ groupId: activeGroupId, sourceId, limit: "5" })}`,
+      `/transactions?${query({ groupId: activeGroupId, userId: activeUserId, sourceId, limit: "5" })}`,
       { data: [] },
     );
   useEffect(() => {
@@ -633,12 +633,12 @@ function Movements({
     load = useLoad<{
       data: Transaction[];
       summary: { totalIncome: number; totalExpense: number };
-    }>(`/transactions?${query({ groupId: activeGroupId, type, limit: "100" })}`, {
+    }>(`/transactions?${query({ groupId: activeGroupId, userId: activeUserId, type, limit: "100" })}`, {
       data: [],
       summary: { totalIncome: 0, totalExpense: 0 },
     }),
     sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId })}`,
+      `/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`,
       [],
     );
   const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
@@ -785,9 +785,9 @@ function TransactionRows({
   actions?: boolean;
   onDelete?: (id: string) => void;
 }) {
-  const { activeGroupId } = useSession(),
+  const { activeUserId, activeGroupId } = useSession(),
     sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId })}`,
+      `/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`,
       [],
     ),
     names = new Map(sources.data.map((source) => [source.id, source.name]));
@@ -860,10 +860,10 @@ function MovementForm({
     }),
     selectedUser = form.watch("userId"),
     sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId })}`,
+      `/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`,
       [],
-    ), clients = useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]),
-    products = useLoad<Product[]>(`/products?${query({groupId:activeGroupId})}`,[]);
+    ), clients = useLoad<Client[]>(`/clients?${query({groupId:activeGroupId,userId:activeUserId})}`,[]),
+    products = useLoad<Product[]>(`/products?${query({groupId:activeGroupId,userId:activeUserId})}`,[]);
   const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name});form.setValue(kind==="clients"?"clientId":"productId",response.data.id);if(kind==="clients")clients.reload();else products.reload();notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   useEffect(() => {
     if (id)
@@ -1063,7 +1063,7 @@ const orderQueueFilters: { value: OrderQueueFilter; label: string }[] = [
 
 function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { activeUserId, activeGroupId } = useSession(),
-    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
+    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`, []),
     [sourceId, setSourceId] = useState(() => localStorage.getItem(orderSourceKey(activeUserId)) || ""),
     [statusFilter, setStatusFilter] = useState<OrderQueueFilter>("all");
   useEffect(() => {
@@ -1073,7 +1073,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
     setSourceId(next);
     if (next) localStorage.setItem(orderSourceKey(activeUserId), next);
   }, [activeUserId, sources.data]);
-  const orders = useLoad<Order[]>(`/orders?${query({ groupId: activeGroupId, sourceId })}`, []),
+  const orders = useLoad<Order[]>(`/orders?${query({ groupId: activeGroupId, userId: activeUserId, sourceId })}`, []),
     changeSource = (value: string) => {
       setSourceId(value);
       localStorage.setItem(orderSourceKey(activeUserId), value);
@@ -1149,7 +1149,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
 
 function OrderForm({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { id } = useParams(), navigate = useNavigate(), { activeUserId, activeGroupId } = useSession();
-  const sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []);
+  const sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`, []);
   const [values, setValues] = useState<OrderInput & Pick<Partial<Order>, "lastEditedById" | "lastEditedByName">>({
       userId: activeUserId, groupId: activeGroupId, sourceId: localStorage.getItem(orderSourceKey(activeUserId)) || "",
       colorId: "",
@@ -1162,8 +1162,8 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     [colorOpen, setColorOpen] = useState(false),
     [colorModal, setColorModal] = useState(false),
     [newColorName, setNewColorName] = useState("");
-  const colors = useLoad<Color[]>(`/colors?${query({ groupId: activeGroupId, search: colorSearch })}`, []);
-  const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]), products=useLoad<Product[]>(`/products?${query({groupId:activeGroupId})}`,[]);
+  const colors = useLoad<Color[]>(`/colors?${query({ groupId: activeGroupId, userId: activeUserId, search: colorSearch })}`, []);
+  const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId,userId:activeUserId})}`,[]), products=useLoad<Product[]>(`/products?${query({groupId:activeGroupId,userId:activeUserId})}`,[]);
   const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;let saleValue=0;if(kind==="products"){const rawValue=prompt("Valor de venda do produto (R$):","0,00");if(rawValue===null)return;saleValue=Number(rawValue.replace(/\s/g,"").replace(/\./g,"").replace(",","."));if(!Number.isFinite(saleValue)||saleValue<0){notify("Informe um valor de venda válido.",true);return}}try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name,...(kind==="products"?{saleValue}:{})});if(kind==="clients"){const item=response.data as Client;set("clientId",item.id);set("customer",item.name);clients.reload()}else{const item=response.data as Product;setValues(current=>syncOrderProducts(current,[...(current.productItems||[]),{productId:item.id,name:item.name,quantity:1,saleValue:item.saleValue}]));products.reload()}notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   useEffect(() => {
     if (id) api.get<Order>(`/orders/${id}`).then(({ data }) => {
@@ -1255,7 +1255,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
 
 function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(message:string,error?:boolean)=>void}) {
   const {activeUserId,activeGroupId}=useSession(), isClient=kind==="clients";
-  const records=useLoad<(Client|Product)[]>(`/${kind}?${query({groupId:activeGroupId})}`,[]);
+  const records=useLoad<(Client|Product)[]>(`/${kind}?${query({groupId:activeGroupId,userId:activeUserId})}`,[]);
   const [search,setSearch]=useState("");
   const [editing,setEditing]=useState<Client|Product|null>(null), [name,setName]=useState(""), [place,setPlace]=useState(""), [phone,setPhone]=useState("");
   const [costPerMeter,setCostPerMeter]=useState(0),[filamentMeters,setFilamentMeters]=useState(0),[saleValue,setSaleValue]=useState(0);
@@ -1265,7 +1265,7 @@ function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(mess
   const totalCost=costPerMeter*filamentMeters;
   const clear=()=>{setEditing(null);setName("");setPlace("");setPhone("");setCostPerMeter(0);setFilamentMeters(0);setSaleValue(0);setImageFile(null);setImageUrl("");setModelFileUrl("")};
   const edit=(record:Client|Product)=>{setEditing(record);setName(record.name);setImageFile(null);if("place" in record){setPlace(record.place);setPhone(record.phone)}else{setCostPerMeter(record.costPerMeter);setFilamentMeters(record.filamentMeters);setSaleValue(record.saleValue);setImageUrl(record.imageUrl);setModelFileUrl(record.modelFileUrl)}};
-  const uploadProductImage=async()=>{if(!imageFile)return imageUrl;if(imageFile.size>5*1024*1024)throw new Error("A imagem deve ter no máximo 5 MB.");const extension=imageFile.name.split(".").pop()?.toLowerCase()||"jpg";const path=`${activeUserId}/${crypto.randomUUID()}.${extension}`;const{error}=await supabase.storage.from("product-images").upload(path,imageFile,{contentType:imageFile.type,upsert:false});if(error)throw error;return supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl};
+  const uploadProductImage=async()=>{if(!imageFile)return imageUrl;if(imageFile.size>5*1024*1024)throw new Error("A imagem deve ter no máximo 5 MB.");const{data:auth}=await supabase.auth.getUser();if(!auth.user)throw new Error("Faça login novamente para anexar a imagem.");const extension=imageFile.name.split(".").pop()?.toLowerCase()||"jpg";const path=`${auth.user.id}/${crypto.randomUUID()}.${extension}`;const{error}=await supabase.storage.from("product-images").upload(path,imageFile,{contentType:imageFile.type,upsert:false});if(error)throw error;return supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl};
   const submit=async(event:FormEvent)=>{event.preventDefault();try{const uploadedImageUrl=isClient?"":await uploadProductImage();const payload=isClient?{userId:activeUserId,groupId:activeGroupId,name,place,phone,active:true}:{userId:activeUserId,groupId:activeGroupId,name,costPerMeter,filamentMeters,saleValue,imageUrl:uploadedImageUrl,modelFileUrl,active:true};editing?await api.put(`/${kind}/${editing.id}`,payload):await api.post(`/${kind}`,payload);notify(`${isClient?"Cliente":"Produto"} ${editing?"atualizado":"cadastrado"}.`);clear();records.reload()}catch(error){notify(errorMessage(error),true)}};
   const remove=async(id:string)=>{if(!confirm("Excluir este cadastro?"))return;try{await api.delete(`/${kind}/${id}`);records.reload();notify("Cadastro excluído.")}catch(error){notify(errorMessage(error),true)}};
   return <><PageHeading title={`Cadastros · ${isClient?"Clientes":"Produtos"}`} subtitle={isClient?"Nome é obrigatório; local e telefone são opcionais.":"O custo total é calculado automaticamente."}/>
@@ -1289,11 +1289,11 @@ function IncomeSources({
 }) {
   const { activeUserId, activeUser, activeGroupId } = useSession(),
     load = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId })}`,
+      `/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`,
       [],
     ),
     companies = useLoad<Company[]>(
-      `/companies?${query({ groupId: activeGroupId })}`,
+      `/companies?${query({ groupId: activeGroupId, userId: activeUserId })}`,
       [],
     ),
     [name, setName] = useState(""),
