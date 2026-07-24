@@ -1274,7 +1274,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
 
 function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(message:string,error?:boolean)=>void}) {
   const {activeUserId,activeGroupId,activeGroup}=useSession(), isClient=kind==="clients";
-  const records=useLoad<(Client|Product)[]>(`/${kind}?${query({groupId:activeGroupId,...(isClient?{userId:activeUserId}:{})})}`,[]);
+  const records=useLoad<(Client|Product)[]>(isClient?`/clients?${query({groupId:activeGroupId,userId:activeUserId})}`:"/products",[]);
   const [search,setSearch]=useState("");
   const visibleCatalogRecords=useMemo(()=>records.data
     .filter((record)=>record.name.toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR")))
