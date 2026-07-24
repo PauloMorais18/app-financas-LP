@@ -43,6 +43,8 @@ import {
   ClipboardList,
   Database,
   ExternalLink,
+  Eye,
+  EyeOff,
   Filter,
   Home,
   Image as ImageIcon,
@@ -190,7 +192,8 @@ export default function App() {
 
 function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
   const [name, setName] = useState(""), [email, setEmail] = useState(""), [password, setPassword] = useState(""),
-    [error, setError] = useState(""), [message, setMessage] = useState(""), [loading, setLoading] = useState(false), [signup, setSignup] = useState(false);
+    [error, setError] = useState(""), [message, setMessage] = useState(""), [loading, setLoading] = useState(false), [signup, setSignup] = useState(false),
+    [showPassword, setShowPassword] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(""); setLoading(true);
     try {
@@ -219,7 +222,7 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
         {message && <div className="notice success">{message}</div>}
         {signup && <Field label="Nome"><input autoFocus value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required /></Field>}
         <Field label="E-mail"><input autoFocus={!signup} type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" required /></Field>
-        <Field label="Senha"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></Field>
+        <Field label="Senha"><div className="password-input"><input type={showPassword?"text":"password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={signup?"new-password":"current-password"} required /><button type="button" onClick={()=>setShowPassword((visible)=>!visible)} aria-label={showPassword?"Ocultar senha":"Mostrar senha"} title={showPassword?"Ocultar senha":"Mostrar senha"}>{showPassword?<EyeOff/>:<Eye/>}</button></div></Field>
         <button className="primary login-button" disabled={loading || password.length < 6}>{loading ? "Aguarde..." : signup ? "Criar conta" : "Entrar"}</button>
         <button type="button" className="auth-switch" onClick={() => { setSignup(!signup); setError(""); setMessage(""); }}>{signup ? "Já tenho uma conta" : "Criar uma conta"}</button>
       </form>
