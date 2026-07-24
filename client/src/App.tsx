@@ -337,7 +337,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
 function Layout() {
   const [open, setOpen] = useState(false),
     [registrationsOpen, setRegistrationsOpen] = useState(false),
-    { users, activeUserId, activeUser, setActiveUserId, logout } = useSession();
+    { users, activeUserId, activeUser, setActiveUserId, groups, activeGroupId, setActiveGroupId, logout } = useSession();
   return (
     <div className="shell">
       <aside className={open ? "open" : ""}>
@@ -415,6 +415,20 @@ function Layout() {
             <small>Resumo financeiro do usuário selecionado.</small>
           </div>
           <div className="session-controls">
+          <label className="session-picker">
+            <Users />
+            <select
+              value={activeGroupId}
+              onChange={(event) => setActiveGroupId(event.target.value)}
+              aria-label="Grupo ativo"
+            >
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="session-picker">
             <User />
             <select
