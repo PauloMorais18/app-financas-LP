@@ -478,9 +478,9 @@ function useLoad<T>(url: string, initial: T) {
 
 function Dashboard() {
   const { activeUserId, activeGroupId } = useSession(),
-    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`, []),
+    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
     [sourceId, setSourceId] = useState(() => localStorage.getItem(incomeSourceKey(activeUserId)) || ""),
-    params = query({ groupId: activeGroupId, userId: activeUserId, sourceId }),
+    params = query({ groupId: activeGroupId, sourceId }),
     summary = useLoad(`/dashboard/summary?${params}`, {
       balance: 0,
       income: 0,
@@ -493,7 +493,7 @@ function Dashboard() {
       evolution: { date: string; balance: number }[];
     }>(`/dashboard/charts?${params}`, { monthly: [], evolution: [] }),
     recent = useLoad<{ data: Transaction[] }>(
-      `/transactions?${query({ groupId: activeGroupId, userId: activeUserId, sourceId, limit: "5" })}`,
+      `/transactions?${query({ groupId: activeGroupId, sourceId, limit: "5" })}`,
       { data: [] },
     );
   useEffect(() => {
@@ -652,12 +652,12 @@ function Movements({
     load = useLoad<{
       data: Transaction[];
       summary: { totalIncome: number; totalExpense: number };
-    }>(`/transactions?${query({ groupId: activeGroupId, userId: activeUserId, type, limit: "100" })}`, {
+    }>(`/transactions?${query({ groupId: activeGroupId, type, limit: "100" })}`, {
       data: [],
       summary: { totalIncome: 0, totalExpense: 0 },
     }),
     sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`,
+      `/income-sources?${query({ groupId: activeGroupId })}`,
       [],
     );
   const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
@@ -804,9 +804,9 @@ function TransactionRows({
   actions?: boolean;
   onDelete?: (id: string) => void;
 }) {
-  const { activeUserId, activeGroupId } = useSession(),
+  const { activeGroupId } = useSession(),
     sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`,
+      `/income-sources?${query({ groupId: activeGroupId })}`,
       [],
     ),
     names = new Map(sources.data.map((source) => [source.id, source.name]));
@@ -879,10 +879,10 @@ function MovementForm({
     }),
     selectedUser = form.watch("userId"),
     sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`,
+      `/income-sources?${query({ groupId: activeGroupId })}`,
       [],
-    ), clients = useLoad<Client[]>(`/clients?${query({groupId:activeGroupId,userId:activeUserId})}`,[]),
-    products = useLoad<Product[]>(`/products?${query({groupId:activeGroupId,userId:activeUserId})}`,[]);
+    ), clients = useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]),
+    products = useLoad<Product[]>(`/products?${query({groupId:activeGroupId})}`,[]);
   const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name});form.setValue(kind==="clients"?"clientId":"productId",response.data.id);if(kind==="clients")clients.reload();else products.reload();notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   useEffect(() => {
     if (id)
@@ -1082,7 +1082,7 @@ const orderQueueFilters: { value: OrderQueueFilter; label: string }[] = [
 
 function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { activeUserId, activeGroupId } = useSession(),
-    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`, []),
+    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
     [sourceId, setSourceId] = useState(() => localStorage.getItem(orderSourceKey(activeUserId)) || ""),
     [statusFilter, setStatusFilter] = useState<OrderQueueFilter>("all");
   useEffect(() => {
@@ -1092,7 +1092,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
     setSourceId(next);
     if (next) localStorage.setItem(orderSourceKey(activeUserId), next);
   }, [activeUserId, sources.data]);
-  const orders = useLoad<Order[]>(`/orders?${query({ groupId: activeGroupId, userId: activeUserId, sourceId })}`, []),
+  const orders = useLoad<Order[]>(`/orders?${query({ groupId: activeGroupId, sourceId })}`, []),
     changeSource = (value: string) => {
       setSourceId(value);
       localStorage.setItem(orderSourceKey(activeUserId), value);
@@ -1168,7 +1168,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
 
 function OrderForm({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { id } = useParams(), navigate = useNavigate(), { activeUserId, activeGroupId } = useSession();
-  const sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`, []);
+  const sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []);
   const [values, setValues] = useState<OrderInput & Pick<Partial<Order>, "lastEditedById" | "lastEditedByName">>({
       userId: activeUserId, groupId: activeGroupId, sourceId: localStorage.getItem(orderSourceKey(activeUserId)) || "",
       colorId: "",
@@ -1181,8 +1181,8 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     [colorOpen, setColorOpen] = useState(false),
     [colorModal, setColorModal] = useState(false),
     [newColorName, setNewColorName] = useState("");
-  const colors = useLoad<Color[]>(`/colors?${query({ groupId: activeGroupId, userId: activeUserId, search: colorSearch })}`, []);
-  const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId,userId:activeUserId})}`,[]), products=useLoad<Product[]>(`/products?${query({groupId:activeGroupId,userId:activeUserId})}`,[]);
+  const colors = useLoad<Color[]>(`/colors?${query({ groupId: activeGroupId, search: colorSearch })}`, []);
+  const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]), products=useLoad<Product[]>(`/products?${query({groupId:activeGroupId})}`,[]);
   const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;let saleValue=0;if(kind==="products"){const rawValue=prompt("Valor de venda do produto (R$):","0,00");if(rawValue===null)return;saleValue=Number(rawValue.replace(/\s/g,"").replace(/\./g,"").replace(",","."));if(!Number.isFinite(saleValue)||saleValue<0){notify("Informe um valor de venda válido.",true);return}}try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name,...(kind==="products"?{saleValue}:{})});if(kind==="clients"){const item=response.data as Client;set("clientId",item.id);set("customer",item.name);clients.reload()}else{const item=response.data as Product;setValues(current=>syncOrderProducts(current,[...(current.productItems||[]),{productId:item.id,name:item.name,quantity:1,saleValue:item.saleValue}]));products.reload()}notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   useEffect(() => {
     if (id) api.get<Order>(`/orders/${id}`).then(({ data }) => {
@@ -1274,7 +1274,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
 
 function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(message:string,error?:boolean)=>void}) {
   const {activeUserId,activeGroupId,activeGroup}=useSession(), isClient=kind==="clients";
-  const records=useLoad<(Client|Product)[]>(isClient?`/clients?${query({groupId:activeGroupId,userId:activeUserId})}`:"/products",[]);
+  const records=useLoad<(Client|Product)[]>(`/${kind}?${query({groupId:activeGroupId})}`,[]);
   const [search,setSearch]=useState("");
   const visibleCatalogRecords=useMemo(()=>records.data
     .filter((record)=>record.name.toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR")))
@@ -1312,11 +1312,11 @@ function IncomeSources({
 }) {
   const { activeUserId, activeUser, activeGroupId } = useSession(),
     load = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId, userId: activeUserId })}`,
+      `/income-sources?${query({ groupId: activeGroupId })}`,
       [],
     ),
     companies = useLoad<Company[]>(
-      `/companies?${query({ groupId: activeGroupId, userId: activeUserId })}`,
+      `/companies?${query({ groupId: activeGroupId })}`,
       [],
     ),
     [name, setName] = useState(""),
