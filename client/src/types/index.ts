@@ -10,5 +10,5 @@ export type Order={id:string;userId:string;groupId:string;sourceId:string;colorI
 export type OrderInput=Omit<Order,"id"|"createdAt"|"updatedAt"|"colorName"|"lastEditedById"|"lastEditedByName">;
 export type Color={id:string;userId:string;groupId?:string;name:string;createdAt:string;updatedAt:string};
 export type Client={id:string;userId:string;groupId:string;name:string;place:string;phone:string;active:boolean;createdAt:string;updatedAt:string};
-export type Product={id:string;userId:string;groupId:string;name:string;costPerMeter:number;filamentMeters:number;saleValue:number;totalCost:number;active:boolean;createdAt:string;updatedAt:string};
+export type Product={id:string;userId:string;groupId:string;name:string;costPerMeter:number;filamentMeters:number;saleValue:number;totalCost:number;imageUrl:string;modelFileUrl:string;active:boolean;createdAt:string;updatedAt:string};
 export type Category={id:string;name:string;kind:"income"|"expense"|"both";icon:string};

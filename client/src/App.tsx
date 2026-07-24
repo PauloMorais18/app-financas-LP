@@ -42,7 +42,10 @@ import {
   Contact,
   ClipboardList,
   Database,
+  ExternalLink,
+  Filter,
   Home,
+  Image as ImageIcon,
   LogIn,
   LogOut,
   Menu,
@@ -634,13 +637,44 @@ function Movements({
       data: [],
       summary: { totalIncome: 0, totalExpense: 0 },
     }),
-    recurring = useMemo(
+    sources = useLoad<IncomeSource[]>(
+      `/income-sources?${query({ groupId: activeGroupId })}`,
+      [],
+    );
+  const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[] | null>(null);
+  const [draftSourceIds, setDraftSourceIds] = useState<string[]>([]);
+  const filteredTransactions = useMemo(
+    () => selectedSourceIds === null
+      ? load.data.data
+      : load.data.data.filter((item) => selectedSourceIds.includes(item.sourceId || "__none")),
+    [load.data.data, selectedSourceIds],
+  );
+  const filteredTotal = useMemo(
+    () => filteredTransactions
+      .filter((item) => item.status !== "cancelled")
+      .reduce((sum, item) => sum + item.value, 0),
+    [filteredTransactions],
+  );
+  const recurring = useMemo(
       () =>
-        load.data.data
+        filteredTransactions
           .filter((item) => item.recurring)
           .reduce((sum, item) => sum + item.value, 0),
-      [load.data.data],
+      [filteredTransactions],
     );
+  const openSourceFilter = () => {
+    setDraftSourceIds(selectedSourceIds ?? [...sources.data.map((source) => source.id), "__none"]);
+    setSourceFilterOpen(true);
+  };
+  const toggleDraftSource = (id: string) => setDraftSourceIds((current) =>
+    current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+  );
+  const applySourceFilter = () => {
+    const allIds = [...sources.data.map((source) => source.id), "__none"];
+    setSelectedSourceIds(draftSourceIds.length === allIds.length ? null : draftSourceIds);
+    setSourceFilterOpen(false);
+  };
   const remove = async (id: string) => {
     if (!confirm("Excluir esta movimentação?")) return;
     try {
@@ -654,18 +688,22 @@ function Movements({
   return (
     <>
       <PageHeading title={copy.title} subtitle={copy.subtitle}>
-        <NavLink className="primary" to={copy.url}>
-          <Plus />
-          {copy.new}
-        </NavLink>
+        <div className="heading-actions">
+          {income && <button type="button" className="outline source-filter-button" onClick={openSourceFilter}>
+            <Filter />
+            {selectedSourceIds === null ? "Todas as fontes" : `${selectedSourceIds.length} fonte(s)`}
+          </button>}
+          <NavLink className="primary" to={copy.url}>
+            <Plus />
+            {copy.new}
+          </NavLink>
+        </div>
       </PageHeading>
       <section className="small-kpis">
         <MiniKpi
           label="Total no período"
           value={
-            income
-              ? load.data.summary.totalIncome
-              : load.data.summary.totalExpense
+            filteredTotal
           }
           icon={<CircleDollarSign />}
         />
@@ -676,7 +714,7 @@ function Movements({
         />
         <MiniKpi
           label="Registros"
-          text={String(load.data.data.length)}
+          text={String(filteredTransactions.length)}
           icon={<Database />}
         />
       </section>
@@ -690,9 +728,29 @@ function Movements({
         ) : load.error ? (
           <Empty text={load.error} />
         ) : (
-          <TransactionRows data={load.data.data} actions onDelete={remove} />
+          <TransactionRows data={filteredTransactions} actions onDelete={remove} />
         )}
       </article>
+      {sourceFilterOpen && <div className="modal-backdrop" onMouseDown={() => setSourceFilterOpen(false)}>
+        <div className="card source-filter-modal" role="dialog" aria-modal="true" aria-labelledby="source-filter-title" onMouseDown={(event) => event.stopPropagation()}>
+          <CardTitle title="Filtrar fontes de renda" subtitle="Selecione quais fontes devem aparecer nos ganhos." />
+          <div className="source-filter-options">
+            {sources.data.map((source) => <label key={source.id}>
+              <input type="checkbox" checked={draftSourceIds.includes(source.id)} onChange={() => toggleDraftSource(source.id)} />
+              <span>{source.name}</span>
+            </label>)}
+            <label>
+              <input type="checkbox" checked={draftSourceIds.includes("__none")} onChange={() => toggleDraftSource("__none")} />
+              <span>Ganhos sem fonte</span>
+            </label>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="outline" onClick={() => setDraftSourceIds([...sources.data.map((source) => source.id), "__none"])}>Selecionar todas</button>
+            <button type="button" className="outline" onClick={() => setSourceFilterOpen(false)}>Cancelar</button>
+            <button type="button" className="primary" onClick={applySourceFilter}>Aplicar filtro</button>
+          </div>
+        </div>
+      </div>}
     </>
   );
 }
@@ -1201,10 +1259,14 @@ function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(mess
   const [search,setSearch]=useState("");
   const [editing,setEditing]=useState<Client|Product|null>(null), [name,setName]=useState(""), [place,setPlace]=useState(""), [phone,setPhone]=useState("");
   const [costPerMeter,setCostPerMeter]=useState(0),[filamentMeters,setFilamentMeters]=useState(0),[saleValue,setSaleValue]=useState(0);
+  const [imageFile,setImageFile]=useState<File|null>(null),[imageUrl,setImageUrl]=useState(""),[modelFileUrl,setModelFileUrl]=useState("");
+  const imagePreviewUrl=useMemo(()=>imageFile?URL.createObjectURL(imageFile):imageUrl,[imageFile,imageUrl]);
+  useEffect(()=>()=>{if(imageFile&&imagePreviewUrl)URL.revokeObjectURL(imagePreviewUrl)},[imageFile,imagePreviewUrl]);
   const totalCost=costPerMeter*filamentMeters;
-  const clear=()=>{setEditing(null);setName("");setPlace("");setPhone("");setCostPerMeter(0);setFilamentMeters(0);setSaleValue(0)};
-  const edit=(record:Client|Product)=>{setEditing(record);setName(record.name);if("place" in record){setPlace(record.place);setPhone(record.phone)}else{setCostPerMeter(record.costPerMeter);setFilamentMeters(record.filamentMeters);setSaleValue(record.saleValue)}};
-  const submit=async(event:FormEvent)=>{event.preventDefault();try{const payload=isClient?{userId:activeUserId,groupId:activeGroupId,name,place,phone,active:true}:{userId:activeUserId,groupId:activeGroupId,name,costPerMeter,filamentMeters,saleValue,active:true};editing?await api.put(`/${kind}/${editing.id}`,payload):await api.post(`/${kind}`,payload);notify(`${isClient?"Cliente":"Produto"} ${editing?"atualizado":"cadastrado"}.`);clear();records.reload()}catch(error){notify(errorMessage(error),true)}};
+  const clear=()=>{setEditing(null);setName("");setPlace("");setPhone("");setCostPerMeter(0);setFilamentMeters(0);setSaleValue(0);setImageFile(null);setImageUrl("");setModelFileUrl("")};
+  const edit=(record:Client|Product)=>{setEditing(record);setName(record.name);setImageFile(null);if("place" in record){setPlace(record.place);setPhone(record.phone)}else{setCostPerMeter(record.costPerMeter);setFilamentMeters(record.filamentMeters);setSaleValue(record.saleValue);setImageUrl(record.imageUrl);setModelFileUrl(record.modelFileUrl)}};
+  const uploadProductImage=async()=>{if(!imageFile)return imageUrl;if(imageFile.size>5*1024*1024)throw new Error("A imagem deve ter no máximo 5 MB.");const extension=imageFile.name.split(".").pop()?.toLowerCase()||"jpg";const path=`${activeUserId}/${crypto.randomUUID()}.${extension}`;const{error}=await supabase.storage.from("product-images").upload(path,imageFile,{contentType:imageFile.type,upsert:false});if(error)throw error;return supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl};
+  const submit=async(event:FormEvent)=>{event.preventDefault();try{const uploadedImageUrl=isClient?"":await uploadProductImage();const payload=isClient?{userId:activeUserId,groupId:activeGroupId,name,place,phone,active:true}:{userId:activeUserId,groupId:activeGroupId,name,costPerMeter,filamentMeters,saleValue,imageUrl:uploadedImageUrl,modelFileUrl,active:true};editing?await api.put(`/${kind}/${editing.id}`,payload):await api.post(`/${kind}`,payload);notify(`${isClient?"Cliente":"Produto"} ${editing?"atualizado":"cadastrado"}.`);clear();records.reload()}catch(error){notify(errorMessage(error),true)}};
   const remove=async(id:string)=>{if(!confirm("Excluir este cadastro?"))return;try{await api.delete(`/${kind}/${id}`);records.reload();notify("Cadastro excluído.")}catch(error){notify(errorMessage(error),true)}};
   return <><PageHeading title={`Cadastros · ${isClient?"Clientes":"Produtos"}`} subtitle={isClient?"Nome é obrigatório; local e telefone são opcionais.":"O custo total é calculado automaticamente."}/>
     <section className="management-grid"><article className="card form-card"><CardTitle title={editing?"Editar cadastro":"Novo cadastro"} subtitle="Preencha as informações abaixo."/><form onSubmit={submit}><div className="form-grid">
@@ -1213,9 +1275,11 @@ function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(mess
         <Field label="Custo por metro"><div className="money-input"><span>R$</span><CurrencyInput value={costPerMeter} onChange={setCostPerMeter}/></div></Field>
         <Field label="Metros de filamento"><input type="number" min="0" step="0.01" value={filamentMeters||""} onChange={e=>setFilamentMeters(Number(e.target.value))}/></Field>
         <Field label="Valor de venda"><div className="money-input"><span>R$</span><CurrencyInput value={saleValue} onChange={setSaleValue}/></div></Field>
-        <Field label="Custo total (automático)"><input value={money.format(totalCost)} readOnly/></Field></>}
+        <Field label="Custo total (automático)"><input value={money.format(totalCost)} readOnly/></Field>
+        <Field label="Imagem do produto" wide><input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={e=>setImageFile(e.target.files?.[0]||null)}/>{imagePreviewUrl&&<div className="product-image-preview"><img src={imagePreviewUrl} alt="Prévia do produto"/></div>}<small>JPG, PNG, WebP ou GIF, até 5 MB.</small></Field>
+        <Field label="Link do arquivo 3MF ou STL (Drive)" wide><input type="url" value={modelFileUrl} onChange={e=>setModelFileUrl(e.target.value)} placeholder="https://drive.google.com/..."/></Field></>}
     </div><div className="form-actions">{editing&&<button type="button" className="outline" onClick={clear}>Cancelar</button>}<button className="primary" disabled={!name.trim()}>Salvar cadastro</button></div></form></article>
-    <article className="card"><CardTitle title={isClient?"Clientes cadastrados":"Produtos cadastrados"} subtitle={`${records.data.length} registro(s)`}/><div className="catalog-search"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Buscar ${isClient?"cliente":"produto"} por nome...`}/></div><div className="simple-list">{records.data.filter(record=>record.name.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(record=><div className="list-row" key={record.id}><div><b>{record.name}</b><small>{"place" in record?[record.place,record.phone].filter(Boolean).join(" · ")||"Somente nome":`Custo ${money.format(record.totalCost)} · Venda ${money.format(record.saleValue)}`}</small></div><div className="row-actions"><button onClick={()=>edit(record)}><Pencil/></button><button onClick={()=>remove(record.id)}><Trash2/></button></div></div>)}{!records.loading&&!records.data.length&&<Empty text="Nenhum cadastro encontrado."/>}</div></article></section></>;
+    <article className="card"><CardTitle title={isClient?"Clientes cadastrados":"Produtos cadastrados"} subtitle={`${records.data.length} registro(s)`}/><div className="catalog-search"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Buscar ${isClient?"cliente":"produto"} por nome...`}/></div><div className="simple-list">{records.data.filter(record=>record.name.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(record=><div className={`list-row ${"imageUrl" in record?"product-list-row":""}`} key={record.id}>{"imageUrl" in record&&(record.imageUrl?<img className="product-thumbnail" src={record.imageUrl} alt={record.name}/>:<span className="product-thumbnail placeholder"><ImageIcon/></span>)}<div><b>{record.name}</b><small>{"place" in record?[record.place,record.phone].filter(Boolean).join(" · ")||"Somente nome":`Custo ${money.format(record.totalCost)} · Venda ${money.format(record.saleValue)}`}</small>{"modelFileUrl" in record&&record.modelFileUrl&&<a className="model-file-link" href={record.modelFileUrl} target="_blank" rel="noreferrer"><ExternalLink/>Abrir arquivo 3MF/STL</a>}</div><div className="row-actions"><button onClick={()=>edit(record)}><Pencil/></button><button onClick={()=>remove(record.id)}><Trash2/></button></div></div>)}{!records.loading&&!records.data.length&&<Empty text="Nenhum cadastro encontrado."/>}</div></article></section></>;
 }
 
 function IncomeSources({

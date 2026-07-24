@@ -53,6 +53,8 @@ create table if not exists public.products (
   total_cost numeric(14,2) generated always as (round(cost_per_meter*filament_meters,2)) stored,
   active boolean not null default true, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+alter table public.products add column if not exists image_url text not null default '';
+alter table public.products add column if not exists model_file_url text not null default '';
 create unique index if not exists products_group_name_ci on public.products(group_id,lower(name));
 create unique index if not exists colors_user_name_ci on public.colors(user_id, lower(name));
 
