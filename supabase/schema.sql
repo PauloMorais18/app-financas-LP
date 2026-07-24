@@ -277,6 +277,31 @@ create trigger create_default_group_after_profile after insert on public.profile
 
 alter table public.groups enable row level security;
 alter table public.group_members enable row level security;
+
+-- Repara associações legadas: se um usuário criou dados em um grupo,
+-- ele necessariamente deve continuar sendo membro desse grupo.
+do $$
+declare table_name text;
+begin
+  foreach table_name in array array[
+    'income_sources','companies','colors','clients',
+    'products','transactions','orders'
+  ] loop
+    execute format(
+      'insert into public.group_members(group_id,user_id)
+       select distinct group_id,user_id from public.%I
+       where group_id is not null and user_id is not null
+       on conflict(group_id,user_id) do nothing',
+      table_name
+    );
+  end loop;
+end $$;
+
+update public.groups g
+set member_count=(
+  select count(*) from public.group_members gm where gm.group_id=g.id
+);
+
 drop policy if exists groups_member_select on public.groups;
 create policy groups_member_select on public.groups for select to authenticated using(owner_id=auth.uid() or public.is_group_member(id));
 drop policy if exists groups_owner_insert on public.groups;

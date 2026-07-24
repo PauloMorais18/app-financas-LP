@@ -81,6 +81,8 @@ import type {
 import { dateBR, money } from "./utils/format";
 import "./catalog.css";
 
+const APP_BUILD_ID = "group-sharing-debug-v1";
+
 const transactionSchema = z.object({
   userId: z.string().min(1, "Selecione o usuário"),
   groupId: z.string().min(1, "Selecione o grupo"),
@@ -244,6 +246,16 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
   const activeUserId = usersLoad.data.some((user) => user.id === storedUserId)
     ? storedUserId
     : usersLoad.data.find((user) => user.id === authUser.id)?.id || usersLoad.data[0]?.id || "";
+  useEffect(() => {
+    console.info("[Finanbase][sessão]", {
+      build: APP_BUILD_ID,
+      authenticatedUserId: authUser.id,
+      activeGroupId,
+      activeUserId,
+      accessibleGroups: groupsLoad.data.map((group) => ({ id: group.id, name: group.name })),
+      visibleUsers: usersLoad.data.map((user) => ({ id: user.id, name: user.name })),
+    });
+  }, [authUser.id, activeGroupId, activeUserId, groupsLoad.data, usersLoad.data]);
   useEffect(() => {
     if (activeUserId && storedUserId !== activeUserId) {
       setStoredUserId(activeUserId);
@@ -466,10 +478,19 @@ function useLoad<T>(url: string, initial: T) {
   const reload = useCallback(() => {
     setLoading(true);
     setError("");
+    console.info("[Finanbase][consulta]", { build: APP_BUILD_ID, url });
     api
       .get<T>(url)
-      .then((response) => setData(response.data))
-      .catch((reason) => setError(errorMessage(reason)))
+      .then((response) => {
+        const result = response.data as unknown;
+        const count = Array.isArray(result) ? result.length : Array.isArray((result as {data?:unknown[]})?.data) ? (result as {data:unknown[]}).data.length : undefined;
+        console.info("[Finanbase][resposta]", { build: APP_BUILD_ID, url, count });
+        setData(response.data);
+      })
+      .catch((reason) => {
+        console.error("[Finanbase][erro]", { build: APP_BUILD_ID, url, message: errorMessage(reason) });
+        setError(errorMessage(reason));
+      })
       .finally(() => setLoading(false));
   }, [url]);
   useEffect(reload, [reload]);
