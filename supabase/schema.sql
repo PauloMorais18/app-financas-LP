@@ -334,7 +334,7 @@ begin
     execute format('drop policy if exists group_update on public.%I',table_name);
     execute format('drop policy if exists group_delete on public.%I',table_name);
     execute format('create policy group_select on public.%I for select to authenticated using (public.is_group_member(group_id))',table_name);
-    execute format('create policy group_insert on public.%1$I for insert to authenticated with check (public.is_group_member(group_id) and exists(select 1 from public.group_members where group_members.group_id=public.%1$I.group_id and group_members.user_id=public.%1$I.user_id))',table_name);
+    execute format('create policy group_insert on public.%I for insert to authenticated with check (public.is_group_member(group_id) and user_id=auth.uid())',table_name);
     execute format('create policy group_update on public.%I for update to authenticated using (public.is_group_member(group_id)) with check (public.is_group_member(group_id))',table_name);
     execute format('create policy group_delete on public.%I for delete to authenticated using (public.is_group_member(group_id))',table_name);
     execute format('drop trigger if exists keep_row_author_before_update on public.%I',table_name);
@@ -468,6 +468,39 @@ create trigger sync_paid_order_income_after_write
 after insert or update of paid, status, value, title, source_id, client_id, product_id, group_id
 on public.orders
 for each row execute function public.sync_paid_order_income();
+
+-- Imagens públicas dos produtos
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'product-images',
+  'product-images',
+  true,
+  5242880,
+  array['image/jpeg','image/png','image/webp','image/gif']
+)
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists product_images_public_read on storage.objects;
+create policy product_images_public_read on storage.objects
+for select to public using (bucket_id = 'product-images');
+
+drop policy if exists product_images_authenticated_insert on storage.objects;
+create policy product_images_authenticated_insert on storage.objects
+for insert to authenticated with check (
+  bucket_id = 'product-images'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+drop policy if exists product_images_owner_update on storage.objects;
+create policy product_images_owner_update on storage.objects
+for update to authenticated using (
+  bucket_id = 'product-images' and owner_id = auth.uid()::text
+) with check (
+  bucket_id = 'product-images' and owner_id = auth.uid()::text
+);
 
 -- Pedidos já entregues passam a ser pagos e recebem o ganho uma única vez.
 update public.orders
