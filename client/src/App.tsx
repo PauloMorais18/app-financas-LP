@@ -97,6 +97,7 @@ const transactionSchema = z.object({
 });
 type Toast = { message: string; error?: boolean };
 type Session = {
+  authenticatedUserId: string;
   users: AppUser[];
   activeUserId: string;
   activeUser?: AppUser;
@@ -268,6 +269,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
     setTimeout(() => setToast(undefined), 3200);
   };
   const session = {
+    authenticatedUserId: authUser.id,
     users: usersLoad.data,
     activeUserId,
     activeUser: usersLoad.data.find((user) => user.id === activeUserId),
@@ -1512,10 +1514,16 @@ function UserManagement({
 }: {
   notify: (message: string, error?: boolean) => void;
 }) {
-  const { users, reloadUsers } = useSession();
-  const user = users[0];
+  const { users, authenticatedUserId, reloadUsers } = useSession();
+  const user = users.find((item) => item.id === authenticatedUserId);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   useEffect(() => {
     setName(user?.name || "");
     setEmail(user?.email || "");
@@ -1529,6 +1537,22 @@ function UserManagement({
       notify("Perfil atualizado.");
     } catch (error) {
       notify(errorMessage(error), true);
+    }
+  };
+  const changePassword = async (event: FormEvent) => {
+    event.preventDefault();
+    if (newPassword.length < 6) return notify("A nova senha deve ter pelo menos 6 caracteres.", true);
+    if (newPassword !== confirmPassword) return notify("A confirmação da nova senha não confere.", true);
+    setChangingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword, current_password: currentPassword });
+      if (error) throw error;
+      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      notify("Senha alterada com sucesso.");
+    } catch (error) {
+      notify(errorMessage(error), true);
+    } finally {
+      setChangingPassword(false);
     }
   };
   return (
@@ -1565,6 +1589,23 @@ function UserManagement({
                 <Pencil /> Salvar perfil
               </button>
             </div>
+          </form>
+        </article>
+        <article className="card form-card">
+          <CardTitle title="Senha" subtitle="Confira a senha digitada ou substitua por uma nova." />
+          <form onSubmit={changePassword}>
+            <div className="form-grid one">
+              <Field label="Senha atual">
+                <div className="password-input"><input type={showCurrentPassword?"text":"password"} value={currentPassword} onChange={(event)=>setCurrentPassword(event.target.value)} autoComplete="current-password" required/><button type="button" onClick={()=>setShowCurrentPassword((visible)=>!visible)} aria-label={showCurrentPassword?"Ocultar senha atual":"Mostrar senha atual"}>{showCurrentPassword?<EyeOff/>:<Eye/>}</button></div>
+              </Field>
+              <Field label="Nova senha">
+                <div className="password-input"><input type={showNewPassword?"text":"password"} value={newPassword} onChange={(event)=>setNewPassword(event.target.value)} autoComplete="new-password" minLength={6} required/><button type="button" onClick={()=>setShowNewPassword((visible)=>!visible)} aria-label={showNewPassword?"Ocultar nova senha":"Mostrar nova senha"}>{showNewPassword?<EyeOff/>:<Eye/>}</button></div>
+              </Field>
+              <Field label="Confirmar nova senha">
+                <div className="password-input"><input type={showNewPassword?"text":"password"} value={confirmPassword} onChange={(event)=>setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={6} required/><button type="button" onClick={()=>setShowNewPassword((visible)=>!visible)} aria-label={showNewPassword?"Ocultar confirmação":"Mostrar confirmação"}>{showNewPassword?<EyeOff/>:<Eye/>}</button></div>
+              </Field>
+            </div>
+            <div className="form-actions"><button className="primary" disabled={changingPassword||!currentPassword||!newPassword||!confirmPassword}>{changingPassword?"Alterando...":"Alterar senha"}</button></div>
           </form>
         </article>
       </div>
