@@ -16,7 +16,13 @@ export default defineConfig({
         {src:"/icons/finanbase-maskable-512.png",sizes:"512x512",type:"image/png",purpose:"maskable"}
       ]
     },
-    workbox:{navigateFallback:"/index.html",runtimeCaching:[{urlPattern:({url})=>url.pathname.startsWith("/api/"),handler:"NetworkOnly"}]}
+    workbox:{
+      navigateFallback:"/index.html",
+      cleanupOutdatedCaches:true,
+      skipWaiting:true,
+      clientsClaim:true,
+      runtimeCaching:[{urlPattern:({url})=>url.pathname.startsWith("/api/"),handler:"NetworkOnly"}]
+    }
   })],
   server:{host:"127.0.0.1",port:5180,strictPort:true,proxy:{"/api":"http://localhost:3333"}}
 });
