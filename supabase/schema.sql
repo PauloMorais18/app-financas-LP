@@ -192,6 +192,7 @@ create table if not exists public.groups (
   name text not null, code text not null unique, is_default boolean not null default false,
   member_count integer not null default 1, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+alter table public.groups add column if not exists filament_cost_per_meter numeric(14,4) not null default 0.30 check(filament_cost_per_meter>=0);
 create unique index if not exists groups_one_default_per_owner on public.groups(owner_id) where is_default;
 create table if not exists public.group_members (
   group_id uuid not null references public.groups(id) on delete cascade,

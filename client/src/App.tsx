@@ -1273,16 +1273,17 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
 }
 
 function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(message:string,error?:boolean)=>void}) {
-  const {activeUserId,activeGroupId}=useSession(), isClient=kind==="clients";
+  const {activeUserId,activeGroupId,activeGroup}=useSession(), isClient=kind==="clients";
   const records=useLoad<(Client|Product)[]>(`/${kind}?${query({groupId:activeGroupId,userId:activeUserId})}`,[]);
   const [search,setSearch]=useState("");
   const [editing,setEditing]=useState<Client|Product|null>(null), [name,setName]=useState(""), [place,setPlace]=useState(""), [phone,setPhone]=useState("");
-  const [costPerMeter,setCostPerMeter]=useState(0),[filamentMeters,setFilamentMeters]=useState(0),[saleValue,setSaleValue]=useState(0);
+  const [costPerMeter,setCostPerMeter]=useState(()=>activeGroup?.filamentCostPerMeter??0.3),[filamentMeters,setFilamentMeters]=useState(0),[saleValue,setSaleValue]=useState(0);
   const [imageFile,setImageFile]=useState<File|null>(null),[imageUrl,setImageUrl]=useState(""),[modelFileUrl,setModelFileUrl]=useState("");
   const imagePreviewUrl=useMemo(()=>imageFile?URL.createObjectURL(imageFile):imageUrl,[imageFile,imageUrl]);
   useEffect(()=>()=>{if(imageFile&&imagePreviewUrl)URL.revokeObjectURL(imagePreviewUrl)},[imageFile,imagePreviewUrl]);
   const totalCost=costPerMeter*filamentMeters;
-  const clear=()=>{setEditing(null);setName("");setPlace("");setPhone("");setCostPerMeter(0);setFilamentMeters(0);setSaleValue(0);setImageFile(null);setImageUrl("");setModelFileUrl("")};
+  const clear=()=>{setEditing(null);setName("");setPlace("");setPhone("");setCostPerMeter(activeGroup?.filamentCostPerMeter??0.3);setFilamentMeters(0);setSaleValue(0);setImageFile(null);setImageUrl("");setModelFileUrl("")};
+  useEffect(()=>{if(!editing&&!isClient)setCostPerMeter(activeGroup?.filamentCostPerMeter??0.3)},[activeGroup?.filamentCostPerMeter,editing,isClient]);
   const edit=(record:Client|Product)=>{setEditing(record);setName(record.name);setImageFile(null);if("place" in record){setPlace(record.place);setPhone(record.phone)}else{setCostPerMeter(record.costPerMeter);setFilamentMeters(record.filamentMeters);setSaleValue(record.saleValue);setImageUrl(record.imageUrl);setModelFileUrl(record.modelFileUrl)}};
   const uploadProductImage=async()=>{if(!imageFile)return imageUrl;if(imageFile.size>5*1024*1024)throw new Error("A imagem deve ter no máximo 5 MB.");const{data:auth}=await supabase.auth.getUser();if(!auth.user)throw new Error("Faça login novamente para anexar a imagem.");const extension=imageFile.name.split(".").pop()?.toLowerCase()||"jpg";const path=`${auth.user.id}/${crypto.randomUUID()}.${extension}`;const{error}=await supabase.storage.from("product-images").upload(path,imageFile,{contentType:imageFile.type,upsert:false});if(error)throw error;return supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl};
   const submit=async(event:FormEvent)=>{event.preventDefault();try{const uploadedImageUrl=isClient?"":await uploadProductImage();const payload=isClient?{userId:activeUserId,groupId:activeGroupId,name,place,phone,active:true}:{userId:activeUserId,groupId:activeGroupId,name,costPerMeter,filamentMeters,saleValue,imageUrl:uploadedImageUrl,modelFileUrl,active:true};editing?await api.put(`/${kind}/${editing.id}`,payload):await api.post(`/${kind}`,payload);notify(`${isClient?"Cliente":"Produto"} ${editing?"atualizado":"cadastrado"}.`);clear();records.reload()}catch(error){notify(errorMessage(error),true)}};
@@ -1291,7 +1292,7 @@ function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(mess
     <section className="management-grid"><article className="card form-card"><CardTitle title={editing?"Editar cadastro":"Novo cadastro"} subtitle="Preencha as informações abaixo."/><form onSubmit={submit}><div className="form-grid">
       <Field label="Nome"><input value={name} onChange={e=>setName(e.target.value)} required autoFocus/></Field>
       {isClient?<><Field label="Lugar (opcional)"><input value={place} onChange={e=>setPlace(e.target.value)} placeholder="Cidade, bairro ou endereço"/></Field><Field label="Telefone (opcional)"><input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(00) 00000-0000"/></Field></>:<>
-        <Field label="Custo por metro"><div className="money-input"><span>R$</span><CurrencyInput value={costPerMeter} onChange={setCostPerMeter}/></div></Field>
+        <Field label="Custo por metro"><div className="money-input"><span>R$</span><CurrencyInput value={costPerMeter} onChange={setCostPerMeter} selectOnFocus/></div></Field>
         <Field label="Metros de filamento"><input type="number" min="0" step="0.01" value={filamentMeters||""} onChange={e=>setFilamentMeters(Number(e.target.value))}/></Field>
         <Field label="Valor de venda"><div className="money-input"><span>R$</span><CurrencyInput value={saleValue} onChange={setSaleValue}/></div></Field>
         <Field label="Custo total (automático)"><input value={money.format(totalCost)} readOnly/></Field>
@@ -1703,7 +1704,7 @@ function Configuration({
 }: {
   notify: (message: string, error?: boolean) => void;
 }) {
-  const { groups, activeGroupId, setActiveGroupId } = useSession();
+  const { groups, activeGroupId, activeGroup, authenticatedUserId, setActiveGroupId, reloadGroups } = useSession();
   const load = useLoad<SheetsSettings>("/settings/excel", {
       workbookId: "",
       worksheet: "Movimentacoes",
@@ -1712,6 +1713,20 @@ function Configuration({
     }),
     [testing, setTesting] = useState(false),
     [result, setResult] = useState<"success" | "error">();
+  const [filamentCost, setFilamentCost] = useState(0.3);
+  const [savingFilamentCost, setSavingFilamentCost] = useState(false);
+  useEffect(()=>setFilamentCost(activeGroup?.filamentCostPerMeter??0.3),[activeGroup?.id,activeGroup?.filamentCostPerMeter]);
+  const saveFilamentCost=async(event:FormEvent)=>{
+    event.preventDefault();
+    if(!activeGroup)return;
+    setSavingFilamentCost(true);
+    try{
+      await api.put(`/groups/${activeGroup.id}`,{filamentCostPerMeter:filamentCost});
+      await reloadGroups();
+      notify("Custo padrão do filamento atualizado.");
+    }catch(error){notify(errorMessage(error),true)}
+    finally{setSavingFilamentCost(false)}
+  };
   const test = async () => {
     setTesting(true);
     setResult(undefined);
@@ -1742,6 +1757,16 @@ function Configuration({
             {groups.map((group) => <option key={group.id} value={group.id}>{group.name} ({group.code})</option>)}
           </select>
         </Field>
+      </article>
+      <article className="card display-settings">
+        <CardTitle title="Custo do filamento" subtitle="Valor padrão por metro usado ao cadastrar novos produtos neste grupo." />
+        <form onSubmit={saveFilamentCost}>
+          <Field label="Custo padrão por metro">
+            <div className="money-input"><span>R$</span><CurrencyInput value={filamentCost} onChange={setFilamentCost} selectOnFocus/></div>
+          </Field>
+          {activeGroup?.ownerId!==authenticatedUserId&&<p className="settings-hint">Somente o responsável pelo grupo pode alterar esta configuração.</p>}
+          <div className="form-actions"><button className="primary" disabled={savingFilamentCost||!activeGroup||activeGroup.ownerId!==authenticatedUserId}>{savingFilamentCost?"Salvando...":"Salvar custo padrão"}</button></div>
+        </form>
       </article>
       <article className="card connection-card">
         <span className={connected ? "connected" : ""}>
@@ -1790,9 +1815,9 @@ function Configuration({
   );
 }
 
-function CurrencyInput({value,onChange}:{value:number;onChange:(value:number)=>void}){
+function CurrencyInput({value,onChange,selectOnFocus=false}:{value:number;onChange:(value:number)=>void;selectOnFocus?:boolean}){
   const display=value>0?new Intl.NumberFormat("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}).format(value):"";
-  return <input inputMode="numeric" autoComplete="off" placeholder="0,00" value={display} onChange={(event)=>{const digits=event.target.value.replace(/\D/g,"");onChange(digits?Number(digits)/100:0)}} aria-label="Valor em reais"/>;
+  return <input inputMode="numeric" autoComplete="off" placeholder="0,00" value={display} onFocus={(event)=>{if(selectOnFocus)event.currentTarget.select()}} onClick={(event)=>{if(selectOnFocus)event.currentTarget.select()}} onChange={(event)=>{const digits=event.target.value.replace(/\D/g,"");onChange(digits?Number(digits)/100:0)}} aria-label="Valor em reais"/>;
 }
 
 function PageHeading({

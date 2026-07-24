@@ -1,7 +1,7 @@
 export type Transaction={id:string;userId:string;groupId:string;sourceId?:string;clientId?:string;productId?:string;companyId?:string;date:string;description:string;category:string;type:"income"|"expense";value:number;paymentMethod:string;status:"paid"|"pending"|"cancelled";observation?:string;recurring:boolean;createdAt?:string;updatedAt?:string};
 export type TransactionInput=Omit<Transaction,"id">;
 export type AppUser={id:string;name:string;email:string;active:boolean;createdAt:string;updatedAt:string};
-export type Group={id:string;name:string;code:string;ownerId:string;isDefault:boolean;memberCount:number;createdAt:string};
+export type Group={id:string;name:string;code:string;ownerId:string;isDefault:boolean;memberCount:number;filamentCostPerMeter:number;createdAt:string};
 export type IncomeSource={id:string;userId:string;groupId?:string;name:string;description:string;active:boolean;createdAt:string;updatedAt:string};
 export type Company={id:string;userId:string;groupId?:string;name:string;active:boolean;createdAt:string;updatedAt:string};
 export type OrderStatus="queued"|"production"|"ready"|"delivered"|"cancelled";
