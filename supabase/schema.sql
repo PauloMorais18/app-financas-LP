@@ -55,6 +55,7 @@ create table if not exists public.products (
 );
 alter table public.products add column if not exists image_url text not null default '';
 alter table public.products add column if not exists model_file_url text not null default '';
+alter table public.products add column if not exists printing_time_minutes integer not null default 0 check (printing_time_minutes >= 0);
 create unique index if not exists products_group_name_ci on public.products(group_id,lower(name));
 create unique index if not exists colors_user_name_ci on public.colors(user_id, lower(name));
 
