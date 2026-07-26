@@ -17,7 +17,11 @@ export default defineConfig({
       ]
     },
     workbox:{
-      navigateFallback:"/index.html",
+      // A Vercel já reescreve as rotas da SPA para index.html. Deixar o
+      // service worker responder às navegações fazia o site normal poder
+      // abrir uma versão antiga completa (HTML + CSS) guardada no precache.
+      navigateFallback:null,
+      globIgnores:["**/index.html"],
       cleanupOutdatedCaches:true,
       skipWaiting:true,
       clientsClaim:true,

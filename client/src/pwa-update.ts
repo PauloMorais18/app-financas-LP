@@ -8,8 +8,14 @@ if ("serviceWorker" in navigator) {
   });
 
   window.addEventListener("load", async () => {
-    const registration = await navigator.serviceWorker.ready;
-    await registration.update();
-    sessionStorage.removeItem(reloadFlag);
+    try {
+      // Atualiza todas as instalações existentes, inclusive as criadas por
+      // versões antigas do app. Não esperamos apenas por `ready`, pois uma
+      // instalação incompleta poderia deixar essa promessa pendente.
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.update()));
+    } finally {
+      sessionStorage.removeItem(reloadFlag);
+    }
   });
 }
