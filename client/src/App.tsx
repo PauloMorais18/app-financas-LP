@@ -1105,7 +1105,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
   const { activeUserId, activeGroupId } = useSession(),
     sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
     [sourceId, setSourceId] = useState(() => localStorage.getItem(orderSourceKey(activeUserId)) || ""),
-    [statusFilter, setStatusFilter] = useState<OrderQueueFilter>("all");
+    [statusFilter, setStatusFilter] = useState<OrderQueueFilter>("pending");
   useEffect(() => {
     const cached = localStorage.getItem(orderSourceKey(activeUserId)) || "";
     const available = sources.data.filter((source) => source.active);
@@ -1201,7 +1201,11 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     [colorSearch, setColorSearch] = useState(""),
     [colorOpen, setColorOpen] = useState(false),
     [colorModal, setColorModal] = useState(false),
-    [newColorName, setNewColorName] = useState("");
+    [newColorName, setNewColorName] = useState(""),
+    [clientOpen, setClientOpen] = useState(false),
+    [quickKind, setQuickKind] = useState<"clients" | "products" | null>(null),
+    [quickName, setQuickName] = useState(""),
+    [quickSaleValue, setQuickSaleValue] = useState(0);
   const colors = useLoad<Color[]>(`/colors?${query({ groupId: activeGroupId, search: colorSearch })}`, []);
   const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]), products=useLoad<Product[]>(`/products?${query({groupId:activeGroupId})}`,[]);
   const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;let saleValue=0;if(kind==="products"){const rawValue=prompt("Valor de venda do produto (R$):","0,00");if(rawValue===null)return;saleValue=Number(rawValue.replace(/\s/g,"").replace(/\./g,"").replace(",","."));if(!Number.isFinite(saleValue)||saleValue<0){notify("Informe um valor de venda válido.",true);return}}try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name,...(kind==="products"?{saleValue}:{})});if(kind==="clients"){const item=response.data as Client;set("clientId",item.id);set("customer",item.name);clients.reload()}else{const item=response.data as Product;setValues(current=>syncOrderProducts(current,[...(current.productItems||[]),{productId:item.id,name:item.name,quantity:1,saleValue:item.saleValue}]));products.reload()}notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
@@ -1226,6 +1230,10 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
   const addProduct = (productId: string) => { const product=products.data.find((item)=>item.id===productId);if(product&&!selectedProductIds.includes(productId))setValues((current)=>syncOrderProducts(current,[...selectedProductItems,{productId:product.id,name:product.name,quantity:1,saleValue:product.saleValue}])); };
   const removeProduct = (productId: string) => setValues((current)=>syncOrderProducts(current,selectedProductItems.filter((item)=>item.productId!==productId)));
   const updateProductQuantity = (productId: string, quantity: number) => setValues((current)=>syncOrderProducts(current,selectedProductItems.map((item)=>item.productId===productId?{...item,quantity:Math.max(1,quantity||1)}:item)));
+  const updateProductSaleValue = (productId: string, saleValue: number) => setValues((current)=>syncOrderProducts(current,selectedProductItems.map((item)=>item.productId===productId?{...item,saleValue:Math.max(0,saleValue||0)}:item)));
+  const clientSuggestions=clients.data.filter((item)=>item.active&&item.name.toLocaleLowerCase("pt-BR").includes(values.customer.trim().toLocaleLowerCase("pt-BR"))).slice(0,5);
+  const openQuickCatalog=(kind:"clients"|"products",suggestedName="")=>{setQuickKind(kind);setQuickName(suggestedName.trim());setQuickSaleValue(0);setClientOpen(false)};
+  const createQuickCatalog=async(event:FormEvent)=>{event.preventDefault();if(!quickKind||!quickName.trim())return;try{const response=await api.post<Client|Product>(`/${quickKind}`,{userId:activeUserId,groupId:activeGroupId,name:quickName.trim(),...(quickKind==="products"?{saleValue:quickSaleValue}:{})});if(quickKind==="clients"){const item=response.data as Client;set("clientId",item.id);set("customer",item.name);clients.reload()}else{const item=response.data as Product;setValues(current=>syncOrderProducts(current,[...(current.productItems||[]),{productId:item.id,name:item.name,quantity:1,saleValue:item.saleValue}]));products.reload()}setQuickKind(null);notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     try {
@@ -1254,8 +1262,8 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
         {id && values.lastEditedByName && <div className="order-audit"><User /><span>Última alteração por <strong>{values.lastEditedByName}</strong></span></div>}
         <div className="form-grid">
           <Field label="Pedido"><input value={values.title} onChange={(e) => set("title", e.target.value)} placeholder="Ex.: 50 peças personalizadas" required /></Field>
-          <Field label="Cliente"><div className="select-add"><select value={values.clientId||""} onChange={e=>{set("clientId",e.target.value);const item=clients.data.find(client=>client.id===e.target.value);if(item)set("customer",item.name)}}><option value="">Selecione ou cadastre</option>{clients.data.filter(item=>item.active).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select><button type="button" className="outline" onClick={()=>quickCatalog("clients")}><Plus/>Rápido</button></div><input value={values.customer} onChange={(e) => set("customer", e.target.value)} placeholder="Nome do cliente" required /></Field>
-          <Field label="Produtos"><div className="select-add"><select value="" onChange={(event) => addProduct(event.target.value)}><option value="">Adicionar produto</option>{products.data.filter((item) => item.active && !selectedProductIds.includes(item.id)).map((item) => <option value={item.id} key={item.id}>{item.name} · {money.format(item.saleValue)}</option>)}</select><button type="button" className="outline" onClick={()=>quickCatalog("products")}><Plus/>Rápido</button></div>{selectedProductItems.length > 0 && <div className="selected-products">{selectedProductItems.map((item) => <div className="selected-product" key={item.productId}><span>{item.name}</span><label>Qtd.<input type="number" min="1" step="1" value={item.quantity} onChange={(event)=>updateProductQuantity(item.productId,Number(event.target.value))}/></label><strong>{money.format(item.saleValue*item.quantity)}</strong><button type="button" onClick={() => removeProduct(item.productId)} aria-label={`Remover ${item.name}`}><X /></button></div>)}</div>}</Field>
+          <Field label="Cliente"><div className="client-search" onBlur={(event)=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))setClientOpen(false)}}><input value={values.customer} onFocus={()=>setClientOpen(true)} onChange={(e)=>{set("customer",e.target.value);set("clientId","");setClientOpen(true)}} placeholder="Digite o nome do cliente" autoComplete="off" required />{clientOpen&&values.customer.trim()&&<div className="client-suggestions">{clientSuggestions.map((item)=><button type="button" key={item.id} onMouseDown={(event)=>event.preventDefault()} onClick={()=>{set("clientId",item.id);set("customer",item.name);setClientOpen(false)}}>{item.name}</button>)}{!clients.loading&&!clientSuggestions.length&&<small>Nenhum cliente encontrado.</small>}<button type="button" className="client-quick-add" onMouseDown={(event)=>event.preventDefault()} onClick={()=>openQuickCatalog("clients",values.customer)}><Plus/>Cadastrar cliente rapidamente</button></div>}</div></Field>
+          <Field label="Produtos"><div className="select-add"><select value="" onChange={(event) => addProduct(event.target.value)}><option value="">Adicionar produto</option>{products.data.filter((item) => item.active && !selectedProductIds.includes(item.id)).map((item) => <option value={item.id} key={item.id}>{item.name} · {money.format(item.saleValue)}</option>)}</select><button type="button" className="outline" onClick={()=>openQuickCatalog("products")}><Plus/>Novo produto</button></div>{selectedProductItems.length > 0 && <div className="selected-products">{selectedProductItems.map((item) => <div className="selected-product" key={item.productId}><span>{item.name}</span><label>Qtd.<input type="number" min="1" step="1" value={item.quantity} onChange={(event)=>updateProductQuantity(item.productId,Number(event.target.value))}/></label><label>Valor un.<div className="product-price"><span>R$</span><CurrencyInput value={item.saleValue} onChange={(value)=>updateProductSaleValue(item.productId,value)}/></div></label><strong>{money.format(item.saleValue*item.quantity)}</strong><button type="button" onClick={() => removeProduct(item.productId)} aria-label={`Remover ${item.name}`}><X /></button></div>)}</div>}</Field>
           <Field label="Fonte de renda"><select value={values.sourceId} onChange={(e) => { set("sourceId", e.target.value); localStorage.setItem(orderSourceKey(activeUserId), e.target.value); }} required><option value="">Selecione</option>{sources.data.filter((source) => source.active).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></Field>
           <Field label="Prazo"><input type="date" value={values.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></Field>
           <Field label="Cor">
@@ -1273,7 +1281,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
               <button type="button" className="outline color-add" onClick={() => { setNewColorName(colorSearch); setColorModal(true); setColorOpen(false); }}><Plus />Nova cor</button>
             </div>
           </Field>
-          <Field label="Valor total (automático)"><div className="money-input automatic-order-value"><span>R$</span><input value={values.value.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})} readOnly aria-label="Valor total calculado pelos produtos" /></div></Field>
+          <Field label="Valor total"><div className="money-input automatic-order-value"><span>R$</span><input value={values.value.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})} readOnly aria-label="Valor total calculado pelos produtos" /></div></Field>
           <Field label="Status"><select value={values.status} onChange={(e) => { const status=e.target.value as Order["status"]; setValues((current)=>({...current,status,paid:status==="delivered"?true:current.paid})); }}>{Object.entries(orderStatusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
           <label className={`order-paid order-paid-form ${values.paid ? "checked" : ""}`}><input type="checkbox" checked={values.paid} disabled={values.status === "delivered"} onChange={(e)=>set("paid",e.target.checked)} /><span>{values.paid ? "Pedido pago" : "Pedido não pago"}</span>{values.status === "delivered" && <small>Pedidos entregues são pagos automaticamente.</small>}</label>
           <Field label="Observações" wide><textarea rows={4} value={values.observation} onChange={(e) => set("observation", e.target.value)} /></Field>
@@ -1287,6 +1295,16 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
         <form onSubmit={createColor}>
           <Field label="Nome da cor"><input autoFocus value={newColorName} onChange={(event) => setNewColorName(event.target.value)} placeholder="Ex.: Azul royal" required /></Field>
           <div className="form-actions"><button type="button" className="outline" onClick={() => setColorModal(false)}>Cancelar</button><button className="primary" disabled={!newColorName.trim()}>Cadastrar cor</button></div>
+        </form>
+      </div>
+    </div>}
+    {quickKind && <div className="modal-backdrop" onMouseDown={()=>setQuickKind(null)}>
+      <div className="card color-modal" onMouseDown={(event)=>event.stopPropagation()}>
+        <CardTitle title={`Cadastro rápido de ${quickKind==="clients"?"cliente":"produto"}`} subtitle={quickKind==="clients"?"Informe somente o nome do cliente.":"Informe o nome e o valor de venda."}/>
+        <form onSubmit={createQuickCatalog}>
+          <Field label="Nome"><input autoFocus value={quickName} onChange={(event)=>setQuickName(event.target.value)} required /></Field>
+          {quickKind==="products"&&<Field label="Valor de venda"><div className="money-input"><span>R$</span><CurrencyInput value={quickSaleValue} onChange={setQuickSaleValue}/></div></Field>}
+          <div className="form-actions"><button type="button" className="outline" onClick={()=>setQuickKind(null)}>Cancelar</button><button className="primary" disabled={!quickName.trim()}>Cadastrar e selecionar</button></div>
         </form>
       </div>
     </div>}

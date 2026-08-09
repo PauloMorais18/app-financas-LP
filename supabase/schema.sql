@@ -102,6 +102,11 @@ create table if not exists public.order_products (
   primary key(order_id,product_id)
 );
 alter table public.order_products add column if not exists quantity integer not null default 1;
+alter table public.order_products add column if not exists unit_sale_value numeric(14,2);
+update public.order_products op set unit_sale_value=p.sale_value
+from public.products p where p.id=op.product_id and op.unit_sale_value is null;
+alter table public.order_products alter column unit_sale_value set not null;
+alter table public.order_products alter column unit_sale_value set default 0;
 do $$ begin
   if not exists(select 1 from pg_constraint where conname='order_products_quantity_positive') then
     alter table public.order_products add constraint order_products_quantity_positive check(quantity > 0);
@@ -384,8 +389,8 @@ declare target_order uuid;
 begin
   target_order := case when tg_op='DELETE' then old.order_id else new.order_id end;
   update public.orders set value=coalesce((
-    select sum(p.sale_value*op.quantity)
-    from public.order_products op join public.products p on p.id=op.product_id
+    select sum(op.unit_sale_value*op.quantity)
+    from public.order_products op
     where op.order_id=target_order
   ),0) where id=target_order;
   return null;
@@ -396,8 +401,8 @@ create trigger refresh_order_products_total_after_write after insert or update o
 for each row execute function public.refresh_order_products_total();
 
 update public.orders o set value=coalesce((
-  select sum(p.sale_value*op.quantity)
-  from public.order_products op join public.products p on p.id=op.product_id
+  select sum(op.unit_sale_value*op.quantity)
+  from public.order_products op
   where op.order_id=o.id
 ),0) where exists(select 1 from public.order_products op where op.order_id=o.id);
 
