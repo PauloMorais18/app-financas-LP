@@ -107,6 +107,7 @@ const transactionSchema = z.object({
 type Toast = { message: string; error?: boolean };
 type Session = {
   authenticatedUserId: string;
+  authenticatedEmail: string;
   users: AppUser[];
   activeUserId: string;
   activeUser?: AppUser;
@@ -213,7 +214,7 @@ function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
         setMessage(response.data.message);
         if (response.data.user && response.data.message === "Conta criada.") onLogin(response.data.user);
       } else {
-        const response = await api.post<{ user: AuthUser }>("/auth/login", { email, password });
+        const response = await api.post<{ user: AuthUser }>("/auth/login", { email: email.trim().toLowerCase(), password });
         localStorage.setItem("finanbase-user", response.data.user.id);
         onLogin(response.data.user);
       }
@@ -289,6 +290,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
   };
   const session = {
     authenticatedUserId: authUser.id,
+    authenticatedEmail: authUser.email || "",
     users: usersLoad.data,
     activeUserId,
     activeUser: usersLoad.data.find((user) => user.id === activeUserId),
@@ -416,11 +418,13 @@ function Layout() {
           <NavLink to="/configuracoes/modulos"><Package />Módulos contratados</NavLink>
         </nav>
         <div className="user-card">
-          <span>{activeUser?.name?.[0] || "?"}</span>
-          <div>
-            <b>{activeUser?.name || "Selecione"}</b>
-            <small>Usuário ativo</small>
-          </div>
+          <NavLink to="/usuarios" className="user-card-profile" onClick={() => setOpen(false)} aria-label="Abrir meu perfil" title="Abrir meu perfil">
+            <span>{activeUser?.name?.[0] || "?"}</span>
+            <div>
+              <b>{activeUser?.name || "Selecione"}</b>
+              <small>Ver meu perfil</small>
+            </div>
+          </NavLink>
           <button className="logout-button" onClick={logout} aria-label="Sair" title="Sair"><LogOut /></button>
         </div>
       </aside>
@@ -1130,23 +1134,30 @@ const orderQueueFilters: { value: OrderQueueFilter; label: string }[] = [
   { value: "ready", label: "Prontos" },
   { value: "delivered", label: "Entregues" },
 ];
+const orderStatusFilterKey = (groupId: string) => `finanbase-order-status-${groupId}`;
+const savedOrderStatusFilter = (groupId: string): OrderQueueFilter => {
+  const saved = localStorage.getItem(orderStatusFilterKey(groupId));
+  return orderQueueFilters.some((filter) => filter.value === saved) ? saved as OrderQueueFilter : "all";
+};
 
 function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { activeUserId, activeGroupId } = useSession(),
     sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
     [sourceId, setSourceId] = useState(() => localStorage.getItem(orderSourceKey(activeUserId)) || ""),
-    [statusFilter, setStatusFilter] = useState<OrderQueueFilter>("pending");
+    [statusFilter, setStatusFilter] = useState<OrderQueueFilter>(() => savedOrderStatusFilter(activeGroupId));
+  useEffect(() => setStatusFilter(savedOrderStatusFilter(activeGroupId)), [activeGroupId]);
   useEffect(() => {
     const cached = localStorage.getItem(orderSourceKey(activeUserId)) || "";
     const available = sources.data.filter((source) => source.active);
-    const next = available.some((source) => source.id === cached) ? cached : available[0]?.id || "";
+    const next = available.some((source) => source.id === cached) ? cached : "";
     setSourceId(next);
-    if (next) localStorage.setItem(orderSourceKey(activeUserId), next);
+    if (!next) localStorage.removeItem(orderSourceKey(activeUserId));
   }, [activeUserId, sources.data]);
   const orders = useLoad<Order[]>(`/orders?${query({ groupId: activeGroupId, sourceId })}`, []),
     changeSource = (value: string) => {
       setSourceId(value);
-      localStorage.setItem(orderSourceKey(activeUserId), value);
+      if (value) localStorage.setItem(orderSourceKey(activeUserId), value);
+      else localStorage.removeItem(orderSourceKey(activeUserId));
     },
     updateOrder = async (order: Order, changes: Partial<Pick<Order, "status" | "paid">>) => {
       try {
@@ -1176,7 +1187,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
     <article className="card order-filter">
       <Field label="Fonte de renda">
         <select value={sourceId} onChange={(event) => changeSource(event.target.value)}>
-          {!sources.data.length && <option value="">Nenhuma fonte cadastrada</option>}
+          <option value="">Todas as fontes</option>
           {sources.data.filter((source) => source.active).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}
         </select>
       </Field>
@@ -1186,7 +1197,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
       </div>
     </article>
     <div className="order-status-filter" role="navigation" aria-label="Filtrar pedidos por status">
-      {orderQueueFilters.map((filter) => <button type="button" key={filter.value} className={statusFilter === filter.value ? "active" : ""} onClick={() => setStatusFilter(filter.value)}>{filter.label}</button>)}
+      {orderQueueFilters.map((filter) => <button type="button" key={filter.value} className={statusFilter === filter.value ? "active" : ""} onClick={() => { setStatusFilter(filter.value); localStorage.setItem(orderStatusFilterKey(activeGroupId), filter.value); }}>{filter.label}</button>)}
     </div>
     <section className="order-board">
       {visibleOrders.map((order) => <article className="card order-card" key={order.id}>
@@ -1233,6 +1244,8 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     [colorModal, setColorModal] = useState(false),
     [newColorName, setNewColorName] = useState(""),
     [clientOpen, setClientOpen] = useState(false),
+    [productSearch, setProductSearch] = useState(""),
+    [productOpen, setProductOpen] = useState(false),
     [quickKind, setQuickKind] = useState<"clients" | "products" | null>(null),
     [quickName, setQuickName] = useState(""),
     [quickSaleValue, setQuickSaleValue] = useState(0);
@@ -1262,7 +1275,11 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
   const updateProductQuantity = (productId: string, quantity: number) => setValues((current)=>syncOrderProducts(current,selectedProductItems.map((item)=>item.productId===productId?{...item,quantity:Math.max(1,quantity||1)}:item)));
   const updateProductSaleValue = (productId: string, saleValue: number) => setValues((current)=>syncOrderProducts(current,selectedProductItems.map((item)=>item.productId===productId?{...item,saleValue:Math.max(0,saleValue||0)}:item)));
   const clientSuggestions=clients.data.filter((item)=>item.active&&item.name.toLocaleLowerCase("pt-BR").includes(values.customer.trim().toLocaleLowerCase("pt-BR"))).slice(0,5);
-  const openQuickCatalog=(kind:"clients"|"products",suggestedName="")=>{setQuickKind(kind);setQuickName(suggestedName.trim());setQuickSaleValue(0);setClientOpen(false)};
+  const normalizeSearch=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLocaleLowerCase("pt-BR").trim();
+  const normalizedProductSearch=normalizeSearch(productSearch);
+  const productSuggestions=products.data.filter((item)=>item.active&&!selectedProductIds.includes(item.id)&&normalizeSearch(item.name).includes(normalizedProductSearch)).slice(0,8);
+  const selectProduct=(productId:string)=>{addProduct(productId);setProductSearch("");setProductOpen(false)};
+  const openQuickCatalog=(kind:"clients"|"products",suggestedName="")=>{setQuickKind(kind);setQuickName(suggestedName.trim());setQuickSaleValue(0);setClientOpen(false);setProductOpen(false)};
   const createQuickCatalog=async(event:FormEvent)=>{event.preventDefault();if(!quickKind||!quickName.trim())return;try{const response=await api.post<Client|Product>(`/${quickKind}`,{userId:activeUserId,groupId:activeGroupId,name:quickName.trim(),...(quickKind==="products"?{saleValue:quickSaleValue}:{})});if(quickKind==="clients"){const item=response.data as Client;set("clientId",item.id);set("customer",item.name);clients.reload()}else{const item=response.data as Product;setValues(current=>syncOrderProducts(current,[...(current.productItems||[]),{productId:item.id,name:item.name,quantity:1,saleValue:item.saleValue}]));products.reload()}setQuickKind(null);notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -1293,7 +1310,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
         <div className="form-grid">
           <Field label="Pedido"><input value={values.title} onChange={(e) => set("title", e.target.value)} placeholder="Ex.: 50 peças personalizadas" required /></Field>
           <Field label="Cliente"><div className="client-search" onBlur={(event)=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))setClientOpen(false)}}><input value={values.customer} onFocus={()=>setClientOpen(true)} onChange={(e)=>{set("customer",e.target.value);set("clientId","");setClientOpen(true)}} placeholder="Digite o nome do cliente" autoComplete="off" required />{clientOpen&&values.customer.trim()&&<div className="client-suggestions">{clientSuggestions.map((item)=><button type="button" key={item.id} onMouseDown={(event)=>event.preventDefault()} onClick={()=>{set("clientId",item.id);set("customer",item.name);setClientOpen(false)}}>{item.name}</button>)}{!clients.loading&&!clientSuggestions.length&&<small>Nenhum cliente encontrado.</small>}<button type="button" className="client-quick-add" onMouseDown={(event)=>event.preventDefault()} onClick={()=>openQuickCatalog("clients",values.customer)}><Plus/>Cadastrar cliente rapidamente</button></div>}</div></Field>
-          <Field label="Produtos"><div className="select-add"><select value="" onChange={(event) => addProduct(event.target.value)}><option value="">Adicionar produto</option>{products.data.filter((item) => item.active && !selectedProductIds.includes(item.id)).map((item) => <option value={item.id} key={item.id}>{item.name} · {money.format(item.saleValue)}</option>)}</select><button type="button" className="outline" onClick={()=>openQuickCatalog("products")}><Plus/>Novo produto</button></div>{selectedProductItems.length > 0 && <div className="selected-products">{selectedProductItems.map((item) => <div className="selected-product" key={item.productId}><span>{item.name}</span><label>Qtd.<input type="number" min="1" step="1" value={item.quantity} onChange={(event)=>updateProductQuantity(item.productId,Number(event.target.value))}/></label><label>Valor un.<div className="product-price"><span>R$</span><CurrencyInput value={item.saleValue} onChange={(value)=>updateProductSaleValue(item.productId,value)}/></div></label><strong>{money.format(item.saleValue*item.quantity)}</strong><button type="button" onClick={() => removeProduct(item.productId)} aria-label={`Remover ${item.name}`}><X /></button></div>)}</div>}</Field>
+          <Field label="Produtos"><div className="select-add"><div className="client-search product-search" onBlur={(event)=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))setProductOpen(false)}}><input value={productSearch} onFocus={()=>setProductOpen(true)} onChange={(event)=>{setProductSearch(event.target.value);setProductOpen(true)}} placeholder="Digite o nome do produto" autoComplete="off" />{productOpen&&<div className="client-suggestions product-suggestions">{productSuggestions.map((item)=><button type="button" key={item.id} onMouseDown={(event)=>event.preventDefault()} onClick={()=>selectProduct(item.id)}><span>{item.name}</span><strong>{money.format(item.saleValue)}</strong></button>)}{!products.loading&&!productSuggestions.length&&<small>Nenhum produto encontrado.</small>}<button type="button" className="client-quick-add" onMouseDown={(event)=>event.preventDefault()} onClick={()=>openQuickCatalog("products",productSearch)}><Plus/>Cadastrar produto rapidamente</button></div>}</div><button type="button" className="outline" onClick={()=>openQuickCatalog("products",productSearch)}><Plus/>Novo produto</button></div>{selectedProductItems.length > 0 && <div className="selected-products">{selectedProductItems.map((item) => <div className="selected-product" key={item.productId}><span>{item.name}</span><label>Qtd.<input type="number" min="1" step="1" value={item.quantity} onChange={(event)=>updateProductQuantity(item.productId,Number(event.target.value))}/></label><label>Valor un.<div className="product-price"><span>R$</span><CurrencyInput value={item.saleValue} onChange={(value)=>updateProductSaleValue(item.productId,value)}/></div></label><strong>{money.format(item.saleValue*item.quantity)}</strong><button type="button" onClick={() => removeProduct(item.productId)} aria-label={`Remover ${item.name}`}><X /></button></div>)}</div>}</Field>
           <Field label="Fonte de renda"><select value={values.sourceId} onChange={(e) => { set("sourceId", e.target.value); localStorage.setItem(orderSourceKey(activeUserId), e.target.value); }} required><option value="">Selecione</option>{sources.data.filter((source) => source.active).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></Field>
           <Field label="Prazo"><input type="date" value={values.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></Field>
           <Field label="Cor">
@@ -1602,25 +1619,23 @@ function UserManagement({
 }: {
   notify: (message: string, error?: boolean) => void;
 }) {
-  const { users, authenticatedUserId, reloadUsers } = useSession();
+  const { users, groups, authenticatedUserId, authenticatedEmail, activeGroupId, setActiveGroupId, reloadUsers } = useSession();
   const user = users.find((item) => item.id === authenticatedUserId);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   useEffect(() => {
     setName(user?.name || "");
-    setEmail(user?.email || "");
-  }, [user]);
+    setEmail(authenticatedEmail || user?.email || "");
+  }, [user, authenticatedEmail]);
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (!user) return;
     try {
-      await api.put<AppUser>(`/users/${user.id}`, { name, email });
+      await api.put<AppUser>(`/users/${user.id}`, { name, email: authenticatedEmail });
       await reloadUsers();
       notify("Perfil atualizado.");
     } catch (error) {
@@ -1633,9 +1648,10 @@ function UserManagement({
     if (newPassword !== confirmPassword) return notify("A confirmação da nova senha não confere.", true);
     setChangingPassword(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword, current_password: currentPassword });
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
-      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
       notify("Senha alterada com sucesso.");
     } catch (error) {
       notify(errorMessage(error), true);
@@ -1668,7 +1684,8 @@ function UserManagement({
                 <input
                   type="email"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  readOnly
+                  title="E-mail usado para entrar no sistema"
                 />
               </Field>
             </div>
@@ -1680,12 +1697,9 @@ function UserManagement({
           </form>
         </article>
         <article className="card form-card">
-          <CardTitle title="Senha" subtitle="Confira a senha digitada ou substitua por uma nova." />
+          <CardTitle title="Alterar senha" subtitle="Defina uma nova senha para sua conta usando a sessão atual." />
           <form onSubmit={changePassword}>
             <div className="form-grid one">
-              <Field label="Senha atual">
-                <div className="password-input"><input type={showCurrentPassword?"text":"password"} value={currentPassword} onChange={(event)=>setCurrentPassword(event.target.value)} autoComplete="current-password" required/><button type="button" onClick={()=>setShowCurrentPassword((visible)=>!visible)} aria-label={showCurrentPassword?"Ocultar senha atual":"Mostrar senha atual"}>{showCurrentPassword?<EyeOff/>:<Eye/>}</button></div>
-              </Field>
               <Field label="Nova senha">
                 <div className="password-input"><input type={showNewPassword?"text":"password"} value={newPassword} onChange={(event)=>setNewPassword(event.target.value)} autoComplete="new-password" minLength={6} required/><button type="button" onClick={()=>setShowNewPassword((visible)=>!visible)} aria-label={showNewPassword?"Ocultar nova senha":"Mostrar nova senha"}>{showNewPassword?<EyeOff/>:<Eye/>}</button></div>
               </Field>
@@ -1693,8 +1707,26 @@ function UserManagement({
                 <div className="password-input"><input type={showNewPassword?"text":"password"} value={confirmPassword} onChange={(event)=>setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={6} required/><button type="button" onClick={()=>setShowNewPassword((visible)=>!visible)} aria-label={showNewPassword?"Ocultar confirmação":"Mostrar confirmação"}>{showNewPassword?<EyeOff/>:<Eye/>}</button></div>
               </Field>
             </div>
-            <div className="form-actions"><button className="primary" disabled={changingPassword||!currentPassword||!newPassword||!confirmPassword}>{changingPassword?"Alterando...":"Alterar senha"}</button></div>
+            <div className="form-actions"><button className="primary" disabled={changingPassword||!newPassword||!confirmPassword}>{changingPassword?"Alterando...":"Alterar senha"}</button></div>
           </form>
+        </article>
+        <article className="card form-card profile-groups">
+          <CardTitle title="Grupos que participo" subtitle={`${groups.length} grupo(s) vinculado(s) à sua conta.`} />
+          <div className="source-list">
+            {groups.map((group) => (
+              <div className={`source-item ${group.id === activeGroupId ? "selected" : ""}`} key={group.id}>
+                <span><Users /></span>
+                <div>
+                  <b>{group.name}</b>
+                  <small>{group.ownerId === authenticatedUserId ? "Responsável pelo grupo" : "Participante"} · código {group.code}</small>
+                </div>
+                <button className="outline" disabled={group.id === activeGroupId} onClick={() => { setActiveGroupId(group.id); notify("Grupo de exibição alterado."); }}>
+                  {group.id === activeGroupId ? "Em uso" : "Usar grupo"}
+                </button>
+              </div>
+            ))}
+            {!groups.length && <Empty text="Você ainda não participa de nenhum grupo." />}
+          </div>
         </article>
       </div>
     </>
