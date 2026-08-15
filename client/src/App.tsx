@@ -46,10 +46,12 @@ import {
   Eye,
   EyeOff,
   Filter,
+  FileText,
   Home,
   Image as ImageIcon,
   LogIn,
   LogOut,
+  Lock,
   Menu,
   Pencil,
   Package,
@@ -96,6 +98,11 @@ const transactionSchema = z.object({
   paymentMethod: z.string(),
   status: z.enum(["paid", "pending", "cancelled"]),
   type: z.enum(["income", "expense"]),
+  vehicle: z.string().optional(),
+  counterparty: z.string().optional(),
+  account: z.string().optional(),
+  dueDate: z.string().optional(),
+  paymentDate: z.string().optional(),
 });
 type Toast = { message: string; error?: boolean };
 type Session = {
@@ -325,6 +332,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
           <Route path="pedidos" element={<OrderQueue notify={notify} />} />
           <Route path="pedidos/novo" element={<OrderForm notify={notify} />} />
           <Route path="pedidos/:id" element={<OrderForm notify={notify} />} />
+          <Route path="relatorios" element={<WorkshopReports />} />
           <Route path="cadastros/clientes" element={<CatalogManagement kind="clients" notify={notify} />} />
           <Route path="cadastros/produtos" element={<CatalogManagement kind="products" notify={notify} />} />
           <Route
@@ -335,6 +343,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
             path="configuracoes"
             element={<Configuration notify={notify} />}
           />
+          <Route path="configuracoes/modulos" element={<ContractedModules />} />
         </Route>
       </Routes>
       {toast && (
@@ -349,7 +358,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
 function Layout() {
   const [open, setOpen] = useState(false),
     [registrationsOpen, setRegistrationsOpen] = useState(true),
-    { users, activeUserId, activeUser, setActiveUserId, groups, activeGroupId, setActiveGroupId, logout } = useSession();
+    { users, activeUserId, activeUser, setActiveUserId, groups, activeGroupId, activeGroup, setActiveGroupId, logout } = useSession();
   return (
     <div className="shell">
       <aside className={open ? "open" : ""}>
@@ -392,6 +401,7 @@ function Layout() {
             <ClipboardList />
             Pedidos
           </NavLink>
+          {activeGroup?.workshopContracted && activeGroup.workshopEnabled && <NavLink to="/relatorios"><FileText />RelatÃ³rios</NavLink>}
           <button className="nav-parent" onClick={(event) => { event.stopPropagation(); setRegistrationsOpen((value) => !value); }}>
             <Database /> Cadastros <span>{registrationsOpen ? "−" : "+"}</span>
           </button>
@@ -403,6 +413,7 @@ function Layout() {
             <Settings />
             Configurações
           </NavLink>
+          <NavLink to="/configuracoes/modulos"><Package />Módulos contratados</NavLink>
         </nav>
         <div className="user-card">
           <span>{activeUser?.name?.[0] || "?"}</span>
@@ -877,7 +888,7 @@ function MovementForm({
 }) {
   const { id } = useParams(),
     navigate = useNavigate(),
-    { users, activeUserId, activeGroupId } = useSession(),
+    { users, activeUserId, activeGroupId, activeGroup } = useSession(),
     [loading, setLoading] = useState(Boolean(id)),
     initialPreferences = readPreferences(activeUserId);
   const form = useForm<TransactionInput>({
@@ -896,6 +907,11 @@ function MovementForm({
         category: initialPreferences.category,
         paymentMethod: initialPreferences.paymentMethod,
         status: initialPreferences.status,
+        vehicle: "",
+        counterparty: "",
+        account: "",
+        dueDate: "",
+        paymentDate: "",
       },
     }),
     selectedUser = form.watch("userId"),
@@ -1050,6 +1066,20 @@ function MovementForm({
                     ))}
                 </select>
               </Field>
+              {activeGroup?.workshopContracted && activeGroup.workshopEnabled && <>
+                {type === "income" ? <>
+                  <Field label="ServiÃ§o / veÃ­culo"><input placeholder="Ex.: Troca de Ã³leo â€” Gol" {...form.register("vehicle")} /></Field>
+                  <Field label="Forma de pagamento"><select {...form.register("paymentMethod")}><option>Dinheiro</option><option>PIX</option><option>CartÃ£o de dÃ©bito</option><option>CartÃ£o de crÃ©dito</option><option>TransferÃªncia</option><option>NÃ£o informado</option></select></Field>
+                  <Field label="Recebedor / conta"><input placeholder="Ex.: PIX Erick, Banco Jenny" {...form.register("account")} /></Field>
+                  <Field label="SituaÃ§Ã£o"><select {...form.register("status")}><option value="paid">Pago</option><option value="pending">A receber</option><option value="cancelled">Cancelado</option></select></Field>
+                  <Field label="Vencimento"><input type="date" {...form.register("dueDate")} /></Field>
+                  <Field label="Data do pagamento"><input type="date" {...form.register("paymentDate")} /></Field>
+                </> : <>
+                  <Field label="Distribuidor / fornecedor"><input placeholder="Ex.: Disael, Mercado Livre" {...form.register("counterparty")} /></Field>
+                  <Field label="Conta usada"><input placeholder="Ex.: Erick, Jenny, Dinheiro" {...form.register("account")} /></Field>
+                  <Field label="Forma de pagamento"><select {...form.register("paymentMethod")}><option>Dinheiro</option><option>PIX</option><option>CartÃ£o de dÃ©bito</option><option>CartÃ£o de crÃ©dito</option><option>TransferÃªncia</option><option>NÃ£o informado</option></select></Field>
+                </>}
+              </>}
               <label className="recurring">
                 <input type="checkbox" {...form.register("recurring")} />
                 <span>
@@ -1742,6 +1772,44 @@ type SheetsSettings = {
   configured: boolean;
   message?: string;
 };
+
+function ContractedModules(){
+  const {activeGroup}=useSession();
+  const modules=[
+    {name:"Financeiro",description:"Dashboard, ganhos, despesas e fontes de renda.",contracted:true,enabled:true},
+    {name:"Pedidos e produtos",description:"Pedidos, clientes, produtos e controle de produção.",contracted:true,enabled:true},
+    {name:"Oficina",description:"Serviços, veículos, fornecedores, contas a receber e relatórios da oficina.",contracted:Boolean(activeGroup?.workshopContracted),enabled:Boolean(activeGroup?.workshopContracted&&activeGroup?.workshopEnabled)},
+  ];
+  return <><PageHeading title="Módulos contratados" subtitle={`Recursos disponíveis para ${activeGroup?.name||"o grupo selecionado"}.`}/><section className="module-grid">{modules.map(module=><article className={`card module-card ${module.contracted?"contracted":"locked"}`} key={module.name}><span className="module-icon">{module.contracted?<CheckCircle2/>:<Lock/>}</span><div><h3>{module.name}</h3><p>{module.description}</p></div><strong>{!module.contracted?"Não contratado":module.enabled?"Ativo":"Contratado · desativado"}</strong>{!module.contracted&&<small>Entre em contato para contratar este módulo.</small>}</article>)}</section></>;
+}
+
+function WorkshopReports() {
+  const { activeGroupId, activeGroup } = useSession();
+  const now = new Date(), firstDay = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
+  const [startDate,setStartDate]=useState(firstDay),[endDate,setEndDate]=useState(todayBrasilia());
+  const load=useLoad<{data:Transaction[]}>(`/transactions?${query({groupId:activeGroupId,startDate,endDate,limit:"1000"})}`,{data:[]});
+  const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]);
+  if(!activeGroup?.workshopContracted||!activeGroup.workshopEnabled)return <Navigate to="/configuracoes/modulos" replace/>;
+  const clientName=(id?:string)=>clients.data.find(item=>item.id===id)?.name||"—";
+  const income=load.data.data.filter(item=>item.type==="income"&&item.status!=="cancelled");
+  const expenses=load.data.data.filter(item=>item.type==="expense"&&item.status!=="cancelled");
+  const receivables=income.filter(item=>item.status==="pending");
+  const total=(items:Transaction[])=>items.reduce((sum,item)=>sum+item.value,0);
+  return <>
+    <PageHeading title="Relatórios da oficina" subtitle="Acompanhe serviços, compras e valores a receber."/>
+    <article className="card report-filters"><Field label="Data inicial"><input type="date" value={startDate} onChange={event=>setStartDate(event.target.value)}/></Field><Field label="Data final"><input type="date" value={endDate} onChange={event=>setEndDate(event.target.value)}/></Field></article>
+    {load.loading?<Empty text="Carregando relatórios..."/>:<div className="workshop-reports">
+      <ReportTable title="Recebimentos por forma de pagamento" subtitle={`${income.length} serviço(s) · ${money.format(total(income))}`} headers={["Serviço / veículo","Data","Cliente","Forma de pagamento","Recebedor / conta","Valor"]} rows={income.map(item=>[item.vehicle||item.description,dateBR(item.date),clientName(item.clientId),item.paymentMethod,item.account||"—",money.format(item.value)])}/>
+      <ReportTable title="Compras e despesas da oficina" subtitle={`${expenses.length} lançamento(s) · ${money.format(total(expenses))}`} headers={["Produto / despesa","Data","Distribuidor","Conta","Pagamento","Valor"]} rows={expenses.map(item=>[item.description,dateBR(item.date),item.counterparty||"—",item.account||"—",item.paymentMethod,money.format(item.value)])}/>
+      <ReportTable title="Contas a receber" subtitle={`${receivables.length} pendência(s) · ${money.format(total(receivables))}`} headers={["Cliente","Venda","Vencimento","Serviço / veículo","Valor devido"]} rows={receivables.map(item=>[clientName(item.clientId),dateBR(item.date),item.dueDate?dateBR(item.dueDate):"—",item.vehicle||item.description,money.format(item.value)])}/>
+    </div>}
+  </>;
+}
+
+function ReportTable({title,subtitle,headers,rows}:{title:string;subtitle:string;headers:string[];rows:string[][]}){
+  return <article className="card table-card report-card"><CardTitle title={title} subtitle={subtitle}/>{rows.length?<div className="table-scroll"><table><thead><tr>{headers.map(header=><th key={header}>{header}</th>)}</tr></thead><tbody>{rows.map((row,index)=><tr key={index}>{row.map((cell,cellIndex)=><td key={cellIndex}>{cell}</td>)}</tr>)}</tbody></table></div>:<Empty text="Nenhum registro no período selecionado."/>}</article>;
+}
+
 function Configuration({
   notify,
 }: {
@@ -1758,6 +1826,7 @@ function Configuration({
     [result, setResult] = useState<"success" | "error">();
   const [filamentCost, setFilamentCost] = useState(0.3);
   const [savingFilamentCost, setSavingFilamentCost] = useState(false);
+  const [savingWorkshop, setSavingWorkshop] = useState(false);
   useEffect(()=>setFilamentCost(activeGroup?.filamentCostPerMeter??0.3),[activeGroup?.id,activeGroup?.filamentCostPerMeter]);
   const saveFilamentCost=async(event:FormEvent)=>{
     event.preventDefault();
@@ -1769,6 +1838,12 @@ function Configuration({
       notify("Custo padrão do filamento atualizado.");
     }catch(error){notify(errorMessage(error),true)}
     finally{setSavingFilamentCost(false)}
+  };
+  const toggleWorkshop=async()=>{
+    if(!activeGroup||!activeGroup.workshopContracted)return;
+    setSavingWorkshop(true);
+    try{await api.put(`/groups/${activeGroup.id}`,{workshopEnabled:!activeGroup.workshopEnabled});await reloadGroups();notify(`Modo oficina ${activeGroup.workshopEnabled?"desativado":"ativado"}.`)}
+    catch(error){notify(errorMessage(error),true)}finally{setSavingWorkshop(false)}
   };
   const test = async () => {
     setTesting(true);
@@ -1810,6 +1885,11 @@ function Configuration({
           {activeGroup?.ownerId!==authenticatedUserId&&<p className="settings-hint">Somente o responsável pelo grupo pode alterar esta configuração.</p>}
           <div className="form-actions"><button className="primary" disabled={savingFilamentCost||!activeGroup||activeGroup.ownerId!==authenticatedUserId}>{savingFilamentCost?"Salvando...":"Salvar custo padrão"}</button></div>
         </form>
+      </article>
+      <article className="card display-settings">
+        <CardTitle title="Modo oficina" subtitle="Habilita campos de serviços, veículos, recebimentos, fornecedores e os relatórios da oficina." />
+        <label className={`settings-toggle ${!activeGroup?.workshopContracted?"locked":""}`}><input type="checkbox" checked={Boolean(activeGroup?.workshopContracted&&activeGroup.workshopEnabled)} onChange={toggleWorkshop} disabled={savingWorkshop||!activeGroup?.workshopContracted||activeGroup.ownerId!==authenticatedUserId}/><span><b>{activeGroup?.workshopContracted?"Oficina habilitada":"Módulo não contratado"}</b><small>{activeGroup?.workshopContracted?"Os campos e relatórios especiais aparecem quando esta opção estiver ativa.":"Este recurso está bloqueado para o cliente atual."}</small></span>{!activeGroup?.workshopContracted&&<Lock/>}</label>
+        {activeGroup?.ownerId!==authenticatedUserId&&<p className="settings-hint">Somente o responsável pelo grupo pode alterar esta configuração.</p>}
       </article>
       <article className="card connection-card">
         <span className={connected ? "connected" : ""}>

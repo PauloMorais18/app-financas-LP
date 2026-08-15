@@ -199,6 +199,27 @@ create table if not exists public.groups (
   member_count integer not null default 1, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 alter table public.groups add column if not exists filament_cost_per_meter numeric(14,4) not null default 0.30 check(filament_cost_per_meter>=0);
+alter table public.groups add column if not exists workshop_enabled boolean not null default false;
+alter table public.groups add column if not exists workshop_contracted boolean not null default false;
+update public.groups set workshop_enabled=false where not workshop_contracted;
+do $$ begin
+  if not exists(select 1 from pg_constraint where conname='groups_workshop_requires_contract') then
+    alter table public.groups add constraint groups_workshop_requires_contract check(not workshop_enabled or workshop_contracted);
+  end if;
+end $$;
+create or replace function public.protect_module_contracts() returns trigger language plpgsql as $$ begin
+  if new.workshop_contracted is distinct from old.workshop_contracted and coalesce(auth.jwt()->>'role','')<>'service_role' and current_user not in ('postgres','supabase_admin') then
+    raise exception 'A contratação de módulos só pode ser alterada pelo administrador da plataforma.';
+  end if;
+  return new;
+end; $$;
+drop trigger if exists protect_module_contracts_before_update on public.groups;
+create trigger protect_module_contracts_before_update before update on public.groups for each row execute function public.protect_module_contracts();
+alter table public.transactions add column if not exists vehicle text not null default '';
+alter table public.transactions add column if not exists counterparty text not null default '';
+alter table public.transactions add column if not exists account text not null default '';
+alter table public.transactions add column if not exists due_date date;
+alter table public.transactions add column if not exists payment_date date;
 create unique index if not exists groups_one_default_per_owner on public.groups(owner_id) where is_default;
 create table if not exists public.group_members (
   group_id uuid not null references public.groups(id) on delete cascade,
