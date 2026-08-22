@@ -21,7 +21,18 @@ const client = (r:any) => ({id:r.id,userId:r.user_id,groupId:r.group_id,name:r.n
 const product = (r:any) => ({id:r.id,userId:r.user_id,groupId:r.group_id,name:r.name,costPerMeter:Number(r.cost_per_meter),filamentMeters:Number(r.filament_meters),printingTimeMinutes:Number(r.printing_time_minutes)||0,saleValue:Number(r.sale_value),totalCost:Number(r.total_cost),imageUrl:r.image_url||"",modelFileUrl:r.model_file_url||"",active:r.active,createdAt:r.created_at,updatedAt:r.updated_at});
 const transaction = (r: any) => ({ id:r.id,userId:r.user_id,groupId:r.group_id,sourceId:r.source_id||"",clientId:r.client_id||"",productId:r.product_id||"",date:dateOnly(r.date),description:r.description,category:r.category,type:r.type,value:Number(r.value),paymentMethod:r.payment_method,status:r.status,observation:r.observation,recurring:r.recurring,vehicle:r.vehicle||"",counterparty:r.counterparty||"",account:r.account||"",dueDate:dateOnly(r.due_date),paymentDate:dateOnly(r.payment_date),createdAt:r.created_at,updatedAt:r.updated_at });
 const order = (r: any) => {const items=r.order_products||[],ids=items.map((item:any)=>item.product_id).filter(Boolean),names=items.map((item:any)=>item.products?.name).filter(Boolean),productItems=items.map((item:any)=>({productId:item.product_id,name:item.products?.name||"Produto",quantity:Number(item.quantity)||1,saleValue:Number(item.unit_sale_value??item.products?.sale_value)||0}));return { id:r.id,userId:r.user_id,groupId:r.group_id,sourceId:r.source_id,colorId:r.color_id||"",colorName:r.colors?.name||"",clientId:r.client_id||"",productId:r.product_id||ids[0]||"",productIds:ids.length?ids:(r.product_id?[r.product_id]:[]),productNames:names,productItems,title:r.title,customer:r.customer,dueDate:dateOnly(r.due_date),value:Number(r.value),status:r.status,paid:Boolean(r.paid)||r.status==="delivered",observation:r.observation,createdAt:r.created_at,updatedAt:r.updated_at,lastEditedById:r.updated_by||"",lastEditedByName:r.updated_by_name||"" }};
-const transactionRow = (v:any) => ({ user_id:v.userId,group_id:v.groupId,source_id:v.sourceId||null,client_id:v.clientId||null,product_id:v.productId||null,date:v.date,description:v.description,category:v.category,type:v.type,value:v.value,payment_method:v.paymentMethod,status:v.status,observation:v.observation||"",recurring:Boolean(v.recurring),vehicle:v.vehicle||"",counterparty:v.counterparty||"",account:v.account||"",due_date:v.dueDate||null,payment_date:v.paymentDate||null });
+const transactionRow = (v:any) => ({
+  user_id:v.userId,group_id:v.groupId,source_id:v.sourceId||null,client_id:v.clientId||null,product_id:v.productId||null,
+  date:v.date,description:v.description,category:v.category,type:v.type,value:v.value,payment_method:v.paymentMethod,
+  status:v.status,observation:v.observation||"",recurring:Boolean(v.recurring),
+  // Campos exclusivos da oficina foram adicionados depois ao banco. Não os envie
+  // em lançamentos comuns quando estiverem vazios, mantendo instalações antigas compatíveis.
+  ...(v.vehicle?{vehicle:v.vehicle}:{}),
+  ...(v.counterparty?{counterparty:v.counterparty}:{}),
+  ...(v.account?{account:v.account}:{}),
+  ...(v.dueDate?{due_date:v.dueDate}:{}),
+  ...(v.paymentDate?{payment_date:v.paymentDate}:{})
+});
 const orderRow = (v:any) => ({ user_id:v.userId,group_id:v.groupId,source_id:v.sourceId,color_id:v.colorId||null,client_id:v.clientId||null,product_id:(v.productIds||[])[0]||v.productId||null,title:v.title,customer:v.customer,due_date:v.dueDate,value:v.value,status:v.status,paid:v.status==="delivered"?true:Boolean(v.paid),observation:v.observation||"" });
 // The wildcard keeps order reads compatible while the unit-price migration is being applied.
 const orderSelect="*,colors(name),order_products(*,products(name,sale_value))";
