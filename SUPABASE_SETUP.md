@@ -13,3 +13,5 @@
 7. Marque Production, Preview e Development e faça um novo deploy.
 
 Não coloque a chave `service_role` no frontend ou no Vercel deste projeto. O acesso é feito com a chave pública, e as políticas RLS do script isolam os dados por usuário autenticado.
+
+Para instalações existentes, execute também `supabase/fix-unpaid-orders-and-source-deletion.sql` no SQL Editor. A migração permite excluir fontes preservando pedidos e movimentações e remove ganhos automáticos vinculados a pedidos não pagos.

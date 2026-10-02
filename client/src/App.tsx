@@ -707,7 +707,7 @@ function Movements({
   );
   const filteredTotal = useMemo(
     () => filteredTransactions
-      .filter((item) => item.status !== "cancelled")
+      .filter((item) => item.status === "paid")
       .reduce((sum, item) => sum + item.value, 0),
     [filteredTransactions],
   );
@@ -1179,7 +1179,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
   const visibleOrders = sortedOrders.filter((order) => statusFilter === "all"
     || (statusFilter === "pending" && (order.status === "queued" || order.status === "production"))
     || order.status === statusFilter);
-  const totalOrderValue = visibleOrders.reduce((total, order) => total + order.value, 0);
+  const totalOrderValue = visibleOrders.filter((order) => order.paid).reduce((total, order) => total + order.value, 0);
   return <>
     <PageHeading title="Fila de produção" subtitle="Acompanhe e atualize os pedidos em andamento.">
       <NavLink className="primary" to="/pedidos/novo"><Plus />Cadastrar pedido</NavLink>
@@ -1193,7 +1193,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
       </Field>
       <div className="order-totals">
         <div><small>Total de pedidos</small><strong>{visibleOrders.length}</strong></div>
-        <div><small>Valor total em pedidos</small><strong>{money.format(totalOrderValue)}</strong></div>
+        <div><small>Valor total em pedidos pagos</small><strong>{money.format(totalOrderValue)}</strong></div>
       </div>
     </article>
     <div className="order-status-filter" role="navigation" aria-label="Filtrar pedidos por status">
@@ -1475,7 +1475,7 @@ function IncomeSources({
     }
   };
   const remove = async (id: string) => {
-    if (!confirm("Excluir esta fonte de renda?")) return;
+    if (!confirm("Excluir esta fonte de renda? Os pedidos e movimentações serão preservados, sem vínculo com a fonte.")) return;
     try {
       await api.delete(`/income-sources/${id}`);
       load.reload();
