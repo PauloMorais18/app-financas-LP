@@ -440,7 +440,8 @@ app.get(
   "/api/transactions",
   safe(async (req, res) => {
     const q = querySchema.parse(req.query);
-    let data = await store.list();
+    const activeSourceIds = new Set((await store.listSources()).filter((source) => source.active).map((source) => source.id));
+    let data = (await store.list()).filter((item) => item.type !== "income" || activeSourceIds.has(item.sourceId));
     data = data.filter(
       (t) =>
         (!q.search ||
@@ -572,11 +573,13 @@ const recurringProjection = (items: Transaction[]) => {
   });
 };
 const dashboard = async (userId = "", sourceId = "", groupId = "") => {
+  const activeSourceIds = new Set((await store.listSources()).filter((source) => source.active).map((source) => source.id));
   const source = (await store.list()).filter(
       (item) =>
         (!userId || item.userId === userId) &&
         (!groupId || item.groupId === groupId) &&
-        (!sourceId || item.sourceId === sourceId),
+        (!sourceId || item.sourceId === sourceId) &&
+        (item.type !== "income" || activeSourceIds.has(item.sourceId)),
     ),
     all = recurringProjection(source),
     active = all.filter((t) => t.status !== "cancelled"),

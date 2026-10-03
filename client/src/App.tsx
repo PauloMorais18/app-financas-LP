@@ -1179,7 +1179,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
   const visibleOrders = sortedOrders.filter((order) => statusFilter === "all"
     || (statusFilter === "pending" && (order.status === "queued" || order.status === "production"))
     || order.status === statusFilter);
-  const totalOrderValue = visibleOrders.filter((order) => order.paid).reduce((total, order) => total + order.value, 0);
+  const totalOrderValue = visibleOrders.reduce((total, order) => total + order.value, 0);
   return <>
     <PageHeading title="Fila de produção" subtitle="Acompanhe e atualize os pedidos em andamento.">
       <NavLink className="primary" to="/pedidos/novo"><Plus />Cadastrar pedido</NavLink>
@@ -1193,7 +1193,7 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
       </Field>
       <div className="order-totals">
         <div><small>Total de pedidos</small><strong>{visibleOrders.length}</strong></div>
-        <div><small>Valor total em pedidos pagos</small><strong>{money.format(totalOrderValue)}</strong></div>
+        <div><small>Valor total dos pedidos</small><strong>{money.format(totalOrderValue)}</strong></div>
       </div>
     </article>
     <div className="order-status-filter" role="navigation" aria-label="Filtrar pedidos por status">

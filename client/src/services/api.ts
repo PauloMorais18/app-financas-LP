@@ -50,11 +50,11 @@ const saveOrderProducts=async(orderId:string,items:any[],desiredTotal:number)=>{
 async function listTransactions(params: URLSearchParams) {
   await currentUser();
   if(!params.get("groupId"))return[];
-  let q:any = supabase.from("transactions").select("*,orders(paid,status)");
+  let q:any = supabase.from("transactions").select("*,orders(paid,status),income_sources(active)");
   if(params.get("userId"))q=q.eq("user_id",params.get("userId")); if(params.get("groupId"))q=q.eq("group_id",params.get("groupId")); if(params.get("sourceId"))q=q.eq("source_id",params.get("sourceId"));
   if(params.get("type"))q=q.eq("type",params.get("type")); if(params.get("status"))q=q.eq("status",params.get("status"));
   if(params.get("search"))q=q.ilike("description",`%${params.get("search")}%`); if(params.get("startDate"))q=q.gte("date",params.get("startDate")); if(params.get("endDate"))q=q.lte("date",params.get("endDate"));
-  const {data,error}=await q.order("date",{ascending:false}); fail(error); return (data||[]).filter((row:any)=>!row.order_id || row.orders?.paid || row.orders?.status==="delivered").map(transaction);
+  const {data,error}=await q.order("date",{ascending:false}); fail(error); return (data||[]).filter((row:any)=>(row.type!=="income" || row.income_sources?.active===true) && (!row.order_id || row.orders?.paid || row.orders?.status==="delivered")).map(transaction);
 }
 const recurringProjection=(items:any[])=>{const now=new Date(),current=now.getFullYear()*12+now.getMonth();return items.flatMap(t=>{if(!t.recurring)return[t];const[y,m,d]=t.date.split("-").map(Number),first=y*12+m-1,copies=[];for(let month=first;month<=current;month++){const year=Math.floor(month/12),index=month%12,day=Math.min(d,new Date(year,index+1,0).getDate());copies.push({...t,id:`${t.id}:${year}-${index+1}`,date:`${year}-${String(index+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`})}return copies})};
 const dashboardData=async(params:URLSearchParams)=>{const all=recurringProjection(await listTransactions(params)),valid=all.filter((t:any)=>t.status!=="cancelled"),paid=valid.filter((t:any)=>t.status==="paid"),income=paid.filter((t:any)=>t.type==="income"),expense=paid.filter((t:any)=>t.type==="expense");return{all,valid:paid,summary:{balance:income.reduce((s:number,t:any)=>s+t.value,0)-expense.reduce((s:number,t:any)=>s+t.value,0),income:income.reduce((s:number,t:any)=>s+t.value,0),expense:expense.reduce((s:number,t:any)=>s+t.value,0),pending:valid.filter((t:any)=>t.status==="pending").reduce((s:number,t:any)=>s+t.value,0),count:all.length}}};

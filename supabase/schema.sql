@@ -565,6 +565,7 @@ alter table public.orders alter column source_id drop not null;
 alter table public.orders drop constraint if exists orders_source_id_fkey;
 alter table public.orders add constraint orders_source_id_fkey
   foreign key (source_id) references public.income_sources(id) on delete set null;
+alter table public.transactions alter column source_id drop not null;
 alter table public.transactions drop constraint if exists transactions_source_id_fkey;
 alter table public.transactions add constraint transactions_source_id_fkey
   foreign key (source_id) references public.income_sources(id) on delete set null;
