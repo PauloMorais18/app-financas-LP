@@ -1,11 +1,12 @@
-export type Transaction={id:string;userId:string;groupId:string;clientId?:string;productId?:string;companyId?:string;date:string;description:string;category:string;type:"income"|"expense";value:number;paymentMethod:string;status:"paid"|"pending"|"cancelled";observation?:string;recurring:boolean;vehicle?:string;counterparty?:string;account?:string;dueDate?:string;paymentDate?:string;createdAt?:string;updatedAt?:string};
+export type Transaction={id:string;userId:string;groupId:string;sourceId?:string;clientId?:string;productId?:string;companyId?:string;date:string;description:string;category:string;type:"income"|"expense";value:number;paymentMethod:string;status:"paid"|"pending"|"cancelled";observation?:string;recurring:boolean;vehicle?:string;counterparty?:string;account?:string;dueDate?:string;paymentDate?:string;createdAt?:string;updatedAt?:string};
 export type TransactionInput=Omit<Transaction,"id">;
 export type AppUser={id:string;name:string;email:string;active:boolean;createdAt:string;updatedAt:string};
 export type Group={id:string;name:string;code:string;ownerId:string;isDefault:boolean;memberCount:number;filamentCostPerMeter:number;workshopContracted:boolean;workshopEnabled:boolean;createdAt:string};
+export type IncomeSource={id:string;userId:string;groupId?:string;name:string;description:string;active:boolean;createdAt:string;updatedAt:string};
 export type Company={id:string;userId:string;groupId?:string;name:string;active:boolean;createdAt:string;updatedAt:string};
 export type OrderStatus="queued"|"production"|"ready"|"delivered"|"cancelled";
 export type OrderProductItem={productId:string;name:string;quantity:number;saleValue:number};
-export type Order={id:string;userId:string;groupId:string;colorId:string;colorName?:string;clientId?:string;productId?:string;productIds?:string[];productNames?:string[];productItems?:OrderProductItem[];title:string;customer:string;dueDate:string;value:number;status:OrderStatus;paid:boolean;observation:string;createdAt:string;updatedAt:string;lastEditedById?:string;lastEditedByName?:string};
+export type Order={id:string;userId:string;groupId:string;sourceId:string;colorId:string;colorName?:string;clientId?:string;productId?:string;productIds?:string[];productNames?:string[];productItems?:OrderProductItem[];title:string;customer:string;dueDate:string;value:number;status:OrderStatus;paid:boolean;observation:string;createdAt:string;updatedAt:string;lastEditedById?:string;lastEditedByName?:string};
 export type OrderInput=Omit<Order,"id"|"createdAt"|"updatedAt"|"colorName"|"lastEditedById"|"lastEditedByName">;
 export type Color={id:string;userId:string;groupId?:string;name:string;createdAt:string;updatedAt:string};
 export type Client={id:string;userId:string;groupId:string;name:string;place:string;phone:string;active:boolean;createdAt:string;updatedAt:string};
