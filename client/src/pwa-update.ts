@@ -1,21 +1,11 @@
-const reloadFlag = "finanbase-pwa-reloading";
-
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (sessionStorage.getItem(reloadFlag)) return;
-    sessionStorage.setItem(reloadFlag, "true");
-    window.location.reload();
-  });
-
-  window.addEventListener("load", async () => {
+// Updates are installed in the background, never by reloading an active page.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  const register = async () => {
     try {
-      // Atualiza todas as instalações existentes, inclusive as criadas por
-      // versões antigas do app. Não esperamos apenas por `ready`, pois uma
-      // instalação incompleta poderia deixar essa promessa pendente.
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.update()));
-    } finally {
-      sessionStorage.removeItem(reloadFlag);
-    }
-  });
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      await registration.update();
+    } catch (error) { console.warn("Não foi possível verificar a atualização do aplicativo.", error); }
+  };
+  if (document.readyState === "complete") void register();
+  else window.addEventListener("load", register, {once:true});
 }

@@ -4,8 +4,9 @@ import {VitePWA} from "vite-plugin-pwa";
 
 export default defineConfig({
   plugins:[react(),VitePWA({
-    registerType:"autoUpdate",
-    devOptions:{enabled:true},
+    registerType:"prompt",
+    injectRegister:false,
+    devOptions:{enabled:false},
     includeAssets:["finanbase-icon.svg","icons/finanbase-180.png"],
     manifest:{
       name:"Finanbase — Controle Financeiro",short_name:"Finanbase",description:"Controle financeiro multiusuário integrado ao Google Sheets.",
@@ -23,7 +24,7 @@ export default defineConfig({
       navigateFallback:null,
       globIgnores:["**/index.html"],
       cleanupOutdatedCaches:true,
-      skipWaiting:true,
+      skipWaiting:false,
       clientsClaim:true,
       runtimeCaching:[{urlPattern:({url})=>url.pathname.startsWith("/api/"),handler:"NetworkOnly"}]
     }

@@ -43,3 +43,17 @@ export function salePreview(quantity:number,price:string,cost:string,fee:string)
   if(commissionCents>revenueCents)throw new Error("O valor da loja não pode superar o valor vendido.");
   return {unitPrice,unitCost,commission:commissionCents/100,revenue:revenueCents/100,profit:(revenueCents-Math.round(unitCost*100)*quantity-commissionCents)/100};
 }
+
+import type {ConsignmentItem} from "./model";
+export function stockForecast(items:ConsignmentItem[]) {
+  let quantity=0,revenueCents=0,storeCents=0,costCents=0,missingCost=false;
+  const styles=items.map(item=>{
+    const gross=Math.round(item.unit_price*100)*item.quantity;
+    const fee=Math.round((item.store_value||0)*100)*item.quantity;
+    quantity+=item.quantity;revenueCents+=gross;storeCents+=fee;
+    if(item.quantity>0&&item.unit_cost==null)missingCost=true;
+    costCents+=Math.round((item.unit_cost||0)*100)*item.quantity;
+    return {name:item.style,store:fee/100,yours:(gross-fee)/100};
+  });
+  return {quantity,revenueCents,storeCents,yourCents:revenueCents-storeCents,profitCents:missingCost?null:revenueCents-storeCents-costCents,styles};
+}

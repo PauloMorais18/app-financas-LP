@@ -5,6 +5,7 @@ import {deleteConsignment,listConsignments,saveConsignment} from "./service";
 import {newItem,parseItems,totals,type Consignment,type DraftItem} from "./model";
 import "./consignments.css";
 import StoreActivity from "./StoreActivity";
+import {stockForecast} from "./activity-model";
 
 type Props={groupId:string;notify:(message:string,error?:boolean)=>void};
 export default function ConsignmentsPage({groupId,notify}:Props) {
@@ -16,7 +17,7 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
   useEffect(()=>{
     let active=true;
     if(!groupId){setStores([]);setLoading(false);return;}
-    setLoading(true);setError("");
+    if(!stores.length)setLoading(true);setError("");
     listConsignments(groupId).then(data=>{if(active)setStores(data)}).catch(reason=>{if(active)setError(reason instanceof Error?reason.message:"Não foi possível carregar as lojas.")}).finally(()=>{if(active)setLoading(false)});
     return ()=>{active=false};
   },[groupId,reload]);
@@ -27,7 +28,15 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
     const original=document.body.style.overflow;document.body.style.overflow="hidden";
     return ()=>{document.removeEventListener("keydown",handler);document.body.style.overflow=original};
   },[editor]);
+  useEffect(()=>{
+    if(!editor)return;
+    try{sessionStorage.setItem("consignment-editor:"+groupId+":"+(editor.store?.id||"new"),JSON.stringify({store:editor.store,name,items}))}catch{}
+  },[editor,groupId,name,items]);
   const open=(store:Consignment|null)=>{
+    try{
+      const saved=JSON.parse(sessionStorage.getItem("consignment-editor:"+groupId+":"+(store?.id||"new"))||"null");
+      if(saved&&Array.isArray(saved.items)&&saved.items.length){setName(saved.name);setItems(saved.items);setEditor({store:saved.store});setFormError("");return}
+    }catch{}
     setName(store?.store_name||"");
     setItems(store?store.consignment_items.map(item=>({key:crypto.randomUUID(),id:item.id,style:item.style,price:item.unit_price.toFixed(2).replace(".",","),quantity:String(item.quantity),cost:item.unit_cost==null?"":item.unit_cost.toFixed(2).replace(".",","),storeValue:(item.store_value||0).toFixed(2).replace(".",",")})):[newItem()]);
     setFormError("");setEditor({store});
@@ -42,6 +51,7 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
       const values=parseItems(items);
       savingRef.current=true;setSaving(true);
       await saveConsignment(groupId,editor.store?.id||null,name,values,editor.store?.updated_at||null);
+      try{sessionStorage.removeItem("consignment-editor:"+groupId+":"+(editor.store?.id||"new"))}catch{}
       setEditor(null);setReload(current=>current+1);notify("Consignados salvos.");
     } catch(reason){setFormError(reason instanceof Error?reason.message:"Não foi possível salvar.")}
     finally{savingRef.current=false;setSaving(false)}
@@ -53,6 +63,7 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
     catch(reason){notify(reason instanceof Error?reason.message:"Não foi possível excluir.",true)}
     finally{setDeleting("")}
   };
+  const draftForecast=stockForecast(items.map(item=>({style:item.style||"Estilo",quantity:Math.max(0,Number(item.quantity)||0),unit_price:Math.max(0,Number(item.price.replace(",","."))||0),store_value:Math.max(0,Number((item.storeValue||"0").replace(",","."))||0),unit_cost:item.cost?.trim()?Math.max(0,Number(item.cost.replace(",","."))||0):null})));
   const summary=totals(stores.flatMap(store=>store.consignment_items));
   let draftTotal:number|null=null;
   try{draftTotal=totals(parseItems(items)).cents}catch{}
@@ -98,9 +109,11 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
               <label className="field">Custo unitário (R$, opcional)<input inputMode="decimal" value={item.cost||""} onChange={event=>update(item.key,{cost:event.target.value})} placeholder="Custo de produção"/></label>
               <label className="field">Valor da loja por chaveiro (R$)<input inputMode="decimal" value={item.storeValue??"0"} onChange={event=>update(item.key,{storeValue:event.target.value})} placeholder="0,00"/></label>
               <button type="button" className="icon-button danger" aria-label={`Remover estilo ${index+1}`} onClick={()=>setItems(current=>current.filter(value=>value.key!==item.key))} disabled={items.length===1||Boolean(item.id)}><Trash2/></button>
+              <div className="consignment-draft-breakdown" aria-live="polite"><span>Valor do estoque: <b>{money.format((Number(item.quantity)||0)*(Number(item.price.replace(",","."))||0))}</b></span><span>Loja: <b>{money.format((Number(item.quantity)||0)*(Number((item.storeValue||"0").replace(",","."))||0))}</b></span><span>Sua parte: <b>{money.format((Number(item.quantity)||0)*((Number(item.price.replace(",","."))||0)-(Number((item.storeValue||"0").replace(",","."))||0)))}</b></span></div>
             </div>)}</div>
           </fieldset>
           {formError&&<div className="notice error" role="alert">{formError}</div>}
+          <div className="consignment-draft-breakdown"><span>Loja (previsto): <b>{money.format(draftForecast.storeCents/100)}</b></span><span>Sua parte (previsto): <b>{money.format(draftForecast.yourCents/100)}</b></span><span>Lucro previsto: <b>{draftForecast.profitCents===null?"Informe o custo":money.format(draftForecast.profitCents/100)}</b></span></div>
           <div className="consignment-draft-total"><span>Valor em consignação nesta loja</span><strong>{draftTotal===null?"Preencha os estilos":money.format(draftTotal/100)}</strong></div>
           <div className="form-actions"><button className="outline" type="button" onClick={()=>setEditor(null)} disabled={saving}>Cancelar</button><button className="primary" disabled={saving}>{saving?"Salvando...":"Salvar loja"}</button></div>
         </form>
