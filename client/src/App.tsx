@@ -309,7 +309,8 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="dashboard" element={<Navigate to="/" replace />} />
-          <Route path="usuarios" element={<UserManagement notify={notify} />} />
+          <Route path="usuarios" element={<Navigate to="/perfil" replace />} />
+          <Route path="perfil" element={<UserManagement notify={notify} />} />
           <Route path="grupos" element={<GroupManagement notify={notify} />} />
           <Route
             path="fontes-renda"
@@ -332,6 +333,8 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
             element={<MovementForm type="expense" notify={notify} />}
           />
           <Route path="pedidos" element={<OrderQueue notify={notify} />} />
+          <Route path="consignados" element={<><PageHeading title="Consignados" subtitle="Controle de produtos em consignação." /><article className="card"><Empty text="Funcionalidade em preparação." /></article></>} />
+          <Route path="ordem-producao" element={<><PageHeading title="Ordem de produção" subtitle="Organização da produção." /><article className="card"><Empty text="Funcionalidade em preparação." /></article></>} />
           <Route path="pedidos/novo" element={<OrderForm notify={notify} />} />
           <Route path="pedidos/:id" element={<OrderForm notify={notify} />} />
           <Route path="relatorios" element={<WorkshopReports />} />
@@ -345,7 +348,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
             path="configuracoes"
             element={<Configuration notify={notify} />}
           />
-          <Route path="configuracoes/modulos" element={<ContractedModules />} />
+
         </Route>
       </Routes>
       {toast && (
@@ -360,7 +363,8 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
 function Layout() {
   const [open, setOpen] = useState(false),
     [registrationsOpen, setRegistrationsOpen] = useState(true),
-    { users, activeUserId, activeUser, setActiveUserId, groups, activeGroupId, activeGroup, setActiveGroupId, logout } = useSession();
+    [movementsOpen, setMovementsOpen] = useState(true),
+    { authenticatedUserId, users, activeUserId, activeUser, setActiveUserId, groups, activeGroupId, activeGroup, setActiveGroupId, logout } = useSession();
   return (
     <div className="shell">
       <aside className={open ? "open" : ""}>
@@ -379,30 +383,19 @@ function Layout() {
             <Home />
             Dashboard
           </NavLink>
-          <NavLink to="/usuarios">
-            <Users />
-            Usuários
-          </NavLink>
-          <NavLink to="/fontes-renda">
-            <BriefcaseBusiness />
-            Fontes de renda
-          </NavLink>
-          <NavLink to="/grupos">
-            <Users />
-            Grupos
-          </NavLink>
-          <NavLink to="/ganhos">
-            <ArrowUpRight />
-            Ganhos
-          </NavLink>
-          <NavLink to="/despesas">
-            <ArrowDownLeft />
-            Despesas
-          </NavLink>
           <NavLink to="/pedidos">
             <ClipboardList />
             Pedidos
           </NavLink>
+          <NavLink to="/consignados"><Package />Consignados</NavLink>
+          <NavLink to="/ordem-producao"><FileText />Ordem de produção</NavLink>
+          <button className="nav-parent" aria-expanded={movementsOpen} aria-controls="movements-menu" onClick={(event) => { event.stopPropagation(); setMovementsOpen(value => !value); }}>
+            <WalletCards /> Movimentações <span>{movementsOpen ? "−" : "+"}</span>
+          </button>
+          {movementsOpen && <div className="nav-children" id="movements-menu">
+            <NavLink to="/ganhos"><ArrowUpRight />Ganhos</NavLink>
+            <NavLink to="/despesas"><ArrowDownLeft />Despesas</NavLink>
+          </div>}
           {activeGroup?.workshopContracted && activeGroup.workshopEnabled && <NavLink to="/relatorios"><FileText />RelatÃ³rios</NavLink>}
           <button className="nav-parent" onClick={(event) => { event.stopPropagation(); setRegistrationsOpen((value) => !value); }}>
             <Database /> Cadastros <span>{registrationsOpen ? "−" : "+"}</span>
@@ -411,17 +404,20 @@ function Layout() {
             <NavLink to="/cadastros/clientes"><Contact />Clientes</NavLink>
             <NavLink to="/cadastros/produtos"><Package />Produtos</NavLink>
           </div>}
+          <NavLink to="/grupos">
+            <Users />
+            Grupos
+          </NavLink>
           <NavLink to="/configuracoes">
             <Settings />
             Configurações
           </NavLink>
-          <NavLink to="/configuracoes/modulos"><Package />Módulos contratados</NavLink>
         </nav>
         <div className="user-card">
-          <NavLink to="/usuarios" className="user-card-profile" onClick={() => setOpen(false)} aria-label="Abrir meu perfil" title="Abrir meu perfil">
-            <span>{activeUser?.name?.[0] || "?"}</span>
+          <NavLink to="/perfil" className="user-card-profile" onClick={() => setOpen(false)} aria-label="Abrir meu perfil" title="Abrir meu perfil">
+            <span>{users.find(user => user.id === authenticatedUserId)?.name?.[0] || "?"}</span>
             <div>
-              <b>{activeUser?.name || "Selecione"}</b>
+              <b>{users.find(user => user.id === authenticatedUserId)?.name || "Meu perfil"}</b>
               <small>Ver meu perfil</small>
             </div>
           </NavLink>
@@ -470,7 +466,7 @@ function Layout() {
               ))}
             </select>
           </label>
-          <NavLink to="/usuarios" className="edit-user" aria-label="Editar usuário selecionado" title="Editar usuário"><Pencil /></NavLink>
+          <NavLink to="/perfil" className="edit-user" aria-label="Editar usuário selecionado" title="Editar usuário"><Pencil /></NavLink>
           </div>
           <NavLink to="/despesas/nova" className="primary header-action">
             <Plus />
@@ -1805,23 +1801,13 @@ type SheetsSettings = {
   message?: string;
 };
 
-function ContractedModules(){
-  const {activeGroup}=useSession();
-  const modules=[
-    {name:"Financeiro",description:"Dashboard, ganhos, despesas e fontes de renda.",contracted:true,enabled:true},
-    {name:"Pedidos e produtos",description:"Pedidos, clientes, produtos e controle de produção.",contracted:true,enabled:true},
-    {name:"Oficina",description:"Serviços, veículos, fornecedores, contas a receber e relatórios da oficina.",contracted:Boolean(activeGroup?.workshopContracted),enabled:Boolean(activeGroup?.workshopContracted&&activeGroup?.workshopEnabled)},
-  ];
-  return <><PageHeading title="Módulos contratados" subtitle={`Recursos disponíveis para ${activeGroup?.name||"o grupo selecionado"}.`}/><section className="module-grid">{modules.map(module=><article className={`card module-card ${module.contracted?"contracted":"locked"}`} key={module.name}><span className="module-icon">{module.contracted?<CheckCircle2/>:<Lock/>}</span><div><h3>{module.name}</h3><p>{module.description}</p></div><strong>{!module.contracted?"Não contratado":module.enabled?"Ativo":"Contratado · desativado"}</strong>{!module.contracted&&<small>Entre em contato para contratar este módulo.</small>}</article>)}</section></>;
-}
-
 function WorkshopReports() {
   const { activeGroupId, activeGroup } = useSession();
   const now = new Date(), firstDay = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
   const [startDate,setStartDate]=useState(firstDay),[endDate,setEndDate]=useState(todayBrasilia());
   const load=useLoad<{data:Transaction[]}>(`/transactions?${query({groupId:activeGroupId,startDate,endDate,limit:"1000"})}`,{data:[]});
   const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]);
-  if(!activeGroup?.workshopContracted||!activeGroup.workshopEnabled)return <Navigate to="/configuracoes/modulos" replace/>;
+  if(!activeGroup?.workshopContracted||!activeGroup.workshopEnabled)return <Navigate to="/configuracoes" replace/>;
   const clientName=(id?:string)=>clients.data.find(item=>item.id===id)?.name||"—";
   const income=load.data.data.filter(item=>item.type==="income"&&item.status!=="cancelled");
   const expenses=load.data.data.filter(item=>item.type==="expense"&&item.status!=="cancelled");
