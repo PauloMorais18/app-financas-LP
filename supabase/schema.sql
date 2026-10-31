@@ -10,15 +10,6 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
-create table if not exists public.income_sources (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  name text not null,
-  description text not null default '',
-  active boolean not null default true,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
 
 create table if not exists public.companies (
   id uuid primary key default gen_random_uuid(),
@@ -62,7 +53,6 @@ create unique index if not exists colors_user_name_ci on public.colors(user_id, 
 create table if not exists public.transactions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  source_id uuid references public.income_sources(id) on delete restrict,
   date date not null,
   description text not null,
   category text not null default 'Outros',
@@ -79,7 +69,6 @@ create table if not exists public.transactions (
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  source_id uuid not null references public.income_sources(id) on delete restrict,
   color_id uuid references public.colors(id) on delete restrict,
   title text not null,
   customer text not null,
@@ -115,13 +104,10 @@ end $$;
 insert into public.order_products(order_id,product_id)
 select id,product_id from public.orders where product_id is not null on conflict do nothing;
 
-create index if not exists income_sources_user_idx on public.income_sources(user_id);
 create index if not exists companies_user_idx on public.companies(user_id);
 create index if not exists colors_user_idx on public.colors(user_id);
 create index if not exists transactions_user_date_idx on public.transactions(user_id, date desc);
-create index if not exists transactions_source_idx on public.transactions(source_id);
 create index if not exists orders_user_due_idx on public.orders(user_id, due_date);
-create index if not exists orders_source_idx on public.orders(source_id);
 
 create or replace function public.set_updated_at()
 returns trigger language plpgsql as $$
@@ -131,7 +117,7 @@ $$;
 do $$
 declare table_name text;
 begin
-  foreach table_name in array array['profiles','income_sources','companies','colors','clients','products','transactions','orders'] loop
+  foreach table_name in array array['profiles','companies','colors','clients','products','transactions','orders'] loop
     execute format('drop trigger if exists set_updated_at on public.%I', table_name);
     execute format('create trigger set_updated_at before update on public.%I for each row execute function public.set_updated_at()', table_name);
   end loop;
@@ -151,7 +137,6 @@ create trigger on_auth_user_created after insert on auth.users
 for each row execute function public.handle_new_user();
 
 alter table public.profiles enable row level security;
-alter table public.income_sources enable row level security;
 alter table public.companies enable row level security;
 alter table public.colors enable row level security;
 alter table public.transactions enable row level security;
@@ -166,7 +151,7 @@ create policy profiles_own on public.profiles for all to authenticated using (id
 do $$
 declare table_name text;
 begin
-  foreach table_name in array array['income_sources','companies','colors'] loop
+  foreach table_name in array array['companies','colors'] loop
     execute format('drop policy if exists own_rows on public.%I', table_name);
     execute format('create policy own_rows on public.%I for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid())', table_name);
   end loop;
@@ -175,16 +160,12 @@ end $$;
 drop policy if exists own_rows on public.transactions;
 create policy own_rows on public.transactions for all to authenticated
 using (user_id = auth.uid())
-with check (user_id = auth.uid() and (source_id is null or exists (
-  select 1 from public.income_sources s where s.id = source_id and s.user_id = auth.uid()
-)));
+with check (user_id = auth.uid());
 
 drop policy if exists own_rows on public.orders;
 create policy own_rows on public.orders for all to authenticated
 using (user_id = auth.uid())
-with check (user_id = auth.uid() and exists (
-  select 1 from public.income_sources s where s.id = source_id and s.user_id = auth.uid()
-) and (color_id is null or exists (
+with check (user_id = auth.uid() and (color_id is null or exists (
   select 1 from public.colors c where c.id = color_id and c.user_id = auth.uid()
 )));
 
@@ -228,7 +209,6 @@ create table if not exists public.group_members (
 );
 create index if not exists group_members_user_idx on public.group_members(user_id);
 
-alter table public.income_sources add column if not exists group_id uuid references public.groups(id) on delete restrict;
 alter table public.companies add column if not exists group_id uuid references public.groups(id) on delete restrict;
 alter table public.colors add column if not exists group_id uuid references public.groups(id) on delete restrict;
 alter table public.transactions add column if not exists group_id uuid references public.groups(id) on delete restrict;
@@ -252,7 +232,6 @@ begin
       end loop;
     end if;
     insert into public.group_members(group_id,user_id) values(default_group_id,profile_row.id) on conflict do nothing;
-    update public.income_sources set group_id=default_group_id where user_id=profile_row.id and group_id is null;
     update public.companies set group_id=default_group_id where user_id=profile_row.id and group_id is null;
     update public.colors set group_id=default_group_id where user_id=profile_row.id and group_id is null;
     update public.transactions set group_id=default_group_id where user_id=profile_row.id and group_id is null;
@@ -262,7 +241,6 @@ begin
   end loop;
 end $$;
 
-alter table public.income_sources alter column group_id set not null;
 alter table public.companies alter column group_id set not null;
 alter table public.colors alter column group_id set not null;
 alter table public.transactions alter column group_id set not null;
@@ -311,7 +289,7 @@ do $$
 declare table_name text;
 begin
   foreach table_name in array array[
-    'income_sources','companies','colors','clients',
+    'companies','colors','clients',
     'products','transactions','orders'
   ] loop
     execute format(
@@ -351,7 +329,6 @@ begin
   delete from public.clients where group_id=target_group;
   delete from public.products where group_id=target_group;
   delete from public.companies where group_id=target_group;
-  delete from public.income_sources where group_id=target_group;
   delete from public.groups where id=target_group;
 end;
 $$;
@@ -378,7 +355,7 @@ $$;
 
 do $$ declare table_name text;
 begin
-  foreach table_name in array array['income_sources','companies','colors','clients','products','transactions','orders'] loop
+  foreach table_name in array array['companies','colors','clients','products','transactions','orders'] loop
     execute format('drop policy if exists own_rows on public.%I',table_name);
     execute format('drop policy if exists group_rows on public.%I',table_name);
     execute format('drop policy if exists group_select on public.%I',table_name);
@@ -482,16 +459,16 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $
 begin
   if new.paid and new.value > 0 then
     insert into public.transactions (
-      user_id, group_id, source_id, client_id, product_id, order_id,
+      user_id, group_id, client_id, product_id, order_id,
       date, description, category, type, value, payment_method,
       status, observation, recurring
     )
     values (
-      new.user_id, new.group_id, new.source_id, new.client_id, new.product_id, new.id,
+      new.user_id, new.group_id, new.client_id, new.product_id, new.id,
       current_date, new.title, 'Pedidos', 'income', new.value, 'Não informado',
       'paid', 'Ganho gerado automaticamente pelo pedido.', false
     )
@@ -499,7 +476,6 @@ begin
     do update set
       user_id = excluded.user_id,
       group_id = excluded.group_id,
-      source_id = excluded.source_id,
       client_id = excluded.client_id,
       product_id = excluded.product_id,
       description = excluded.description,
@@ -513,11 +489,11 @@ begin
 
   return null;
 end;
-$$;
+$;
 
 drop trigger if exists sync_paid_order_income_after_write on public.orders;
 create trigger sync_paid_order_income_after_write
-after insert or update of paid, status, value, title, source_id, client_id, product_id, group_id
+after insert or update of paid, status, value, title, client_id, product_id, group_id
 on public.orders
 for each row execute function public.sync_paid_order_income();
 
@@ -559,17 +535,7 @@ update public.orders
 set paid = true
 where status = 'delivered' and paid = false;
 
--- Preserve pedidos e movimentações ao excluir uma fonte de renda.
 begin;
-alter table public.orders alter column source_id drop not null;
-alter table public.orders drop constraint if exists orders_source_id_fkey;
-alter table public.orders add constraint orders_source_id_fkey
-  foreign key (source_id) references public.income_sources(id) on delete set null;
-alter table public.transactions alter column source_id drop not null;
-alter table public.transactions drop constraint if exists transactions_source_id_fkey;
-alter table public.transactions add constraint transactions_source_id_fkey
-  foreign key (source_id) references public.income_sources(id) on delete set null;
-
 -- Reconcile somente ganhos vinculados a pedidos não pagos.
 delete from public.transactions t using public.orders o
 where t.order_id=o.id and not o.paid and o.status <> 'delivered';

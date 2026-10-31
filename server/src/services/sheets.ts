@@ -23,16 +23,7 @@ export interface Group {
   memberCount: number;
   createdAt: string;
 }
-export interface IncomeSource {
-  id: string;
-  userId: string;
-  groupId?: string;
-  name: string;
-  description: string;
-  active: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+
 export interface Company {
   id: string;
   userId: string;
@@ -47,7 +38,6 @@ export interface Order {
   id: string;
   userId: string;
   groupId?: string;
-  sourceId: string;
   colorId: string;
   title: string;
   customer: string;
@@ -76,16 +66,6 @@ type UserRow = {
 } & SheetRecord;
 type GroupRow = { id: unknown; nome: unknown; codigo: unknown; proprietario_id: unknown; padrao: unknown; criado_em: unknown } & SheetRecord;
 type GroupMemberRow = { id: unknown; grupo_id: unknown; usuario_id: unknown; criado_em: unknown } & SheetRecord;
-type SourceRow = {
-  id: unknown;
-  usuario_id: unknown;
-  grupo_id?: unknown;
-  nome: unknown;
-  descricao: unknown;
-  ativo: unknown;
-  criado_em: unknown;
-  atualizado_em: unknown;
-} & SheetRecord;
 type CompanyRow = {
   id: unknown;
   usuario_id: unknown;
@@ -99,7 +79,6 @@ type OrderRow = {
   id: unknown;
   usuario_id: unknown;
   grupo_id?: unknown;
-  fonte_renda_id: unknown;
   cor_id: unknown;
   titulo: unknown;
   cliente: unknown;
@@ -133,7 +112,6 @@ type TransactionRow = {
   recorrente: unknown;
   criado_em: unknown;
   atualizado_em: unknown;
-  fonte_renda_id?: unknown;
   empresa_id?: unknown;
 } & SheetRecord;
 let demo = [...demoTransactions];
@@ -150,17 +128,6 @@ let demoUsers: User[] = [
     id: "usr_002",
     name: "Laura",
     email: "laura@email.com",
-    active: true,
-    createdAt: today(),
-    updatedAt: today(),
-  },
-];
-let demoSources: IncomeSource[] = [
-  {
-    id: "src_001",
-    userId: "usr_001",
-    name: "Renda principal",
-    description: "Fonte de renda padrão",
     active: true,
     createdAt: today(),
     updatedAt: today(),
@@ -251,7 +218,6 @@ const transactionFromRow = (row: TransactionRow): Transaction => ({
   id: String(row.id || ""),
   userId: String(row.usuario_id || ""),
   groupId: String(row.grupo_id || ""),
-  sourceId: String(row.fonte_renda_id || ""),
   companyId: String(row.empresa_id || ""),
   date: sheetDate(row.data),
   description: String(row.descricao || ""),
@@ -274,7 +240,6 @@ const transactionToRow = (transaction: Transaction): TransactionRow => ({
   id: transaction.id,
   usuario_id: transaction.userId,
   grupo_id: transaction.groupId || "",
-  fonte_renda_id: transaction.sourceId || "",
   empresa_id: transaction.companyId || "",
   data: transaction.date,
   descricao: transaction.description,
@@ -304,26 +269,6 @@ const userToRow = (user: User): UserRow => ({
   criado_em: user.createdAt,
   atualizado_em: user.updatedAt,
 });
-const sourceFromRow = (row: SourceRow): IncomeSource => ({
-  id: String(row.id || ""),
-  userId: String(row.usuario_id || ""),
-  groupId: String(row.grupo_id || ""),
-  name: String(row.nome || ""),
-  description: String(row.descricao || ""),
-  active: bool(row.ativo),
-  createdAt: sheetDate(row.criado_em),
-  updatedAt: sheetDate(row.atualizado_em),
-});
-const sourceToRow = (source: IncomeSource): SourceRow => ({
-  id: source.id,
-  usuario_id: source.userId,
-  grupo_id: source.groupId || "",
-  nome: source.name,
-  descricao: source.description,
-  ativo: source.active,
-  criado_em: source.createdAt,
-  atualizado_em: source.updatedAt,
-});
 const companyFromRow = (row: CompanyRow): Company => ({
   id: String(row.id || ""),
   userId: String(row.usuario_id || ""),
@@ -346,7 +291,6 @@ const orderFromRow = (row: OrderRow): Order => ({
   id: String(row.id || ""),
   userId: String(row.usuario_id || ""),
   groupId: String(row.grupo_id || ""),
-  sourceId: String(row.fonte_renda_id || ""),
   colorId: String(row.cor_id || ""),
   title: String(row.titulo || ""),
   customer: String(row.cliente || ""),
@@ -363,7 +307,6 @@ const orderToRow = (order: Order): OrderRow => ({
   id: order.id,
   usuario_id: order.userId,
   grupo_id: order.groupId || "",
-  fonte_renda_id: order.sourceId,
   cor_id: order.colorId,
   titulo: order.title,
   cliente: order.customer,
@@ -394,7 +337,6 @@ const colorToRow = (color: Color): ColorRow => ({
 async function backfillDefaultGroup(userId: string, groupId: string) {
   if (!googleSheetsService.isConfigured()) {
     demo = demo.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
-    demoSources = demoSources.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
     demoCompanies = demoCompanies.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
     demoOrders = demoOrders.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
     demoColors = demoColors.map((item) => item.userId === userId && !item.groupId ? { ...item, groupId } : item);
@@ -402,7 +344,6 @@ async function backfillDefaultGroup(userId: string, groupId: string) {
   }
   const collections = [
     ["Movimentacoes", await list(), transactionToRow],
-    ["FontesRenda", await listSources(), sourceToRow],
     ["Empresas", await listCompanies(), companyToRow],
     ["Pedidos", await listOrders(), orderToRow],
     ["Cores", await listColors(), colorToRow],
@@ -532,74 +473,6 @@ export async function removeUser(id: string) {
     return;
   }
   await googleSheetsService.deleteRecord("Usuarios", id);
-}
-export async function listSources() {
-  if (!googleSheetsService.isConfigured()) return [...demoSources];
-  return (await googleSheetsService.listRecords<SourceRow>("FontesRenda")).map(
-    sourceFromRow,
-  );
-}
-export async function createSource(input: {
-  userId: string;
-  groupId?: string;
-  name: string;
-  description: string;
-}) {
-  const source: IncomeSource = {
-    id: `src_${randomUUID()}`,
-    userId: input.userId,
-    groupId: input.groupId,
-    name: input.name,
-    description: input.description,
-    active: true,
-    createdAt: today(),
-    updatedAt: today(),
-  };
-  if (!googleSheetsService.isConfigured()) {
-    demoSources.push(source);
-    return source;
-  }
-  await googleSheetsService.addRecord("FontesRenda", sourceToRow(source));
-  return source;
-}
-export async function updateSource(
-  id: string,
-  input: { userId: string; groupId?: string; name: string; description: string; active: boolean },
-) {
-  const source: IncomeSource = {
-    id,
-    ...input,
-    createdAt:
-      (await listSources()).find((item) => item.id === id)?.createdAt ||
-      today(),
-    updatedAt: today(),
-  };
-  if (!googleSheetsService.isConfigured()) {
-    const index = demoSources.findIndex((item) => item.id === id);
-    if (index < 0)
-      throw Object.assign(new Error("Fonte de renda não encontrada."), {
-        status: 404,
-      });
-    return (demoSources[index] = source);
-  }
-  await googleSheetsService.updateRecord(
-    "FontesRenda",
-    id,
-    sourceToRow(source),
-  );
-  return source;
-}
-export async function removeSource(id: string) {
-  if (!googleSheetsService.isConfigured()) {
-    const index = demoSources.findIndex((item) => item.id === id);
-    if (index < 0)
-      throw Object.assign(new Error("Fonte de renda não encontrada."), {
-        status: 404,
-      });
-    demoSources.splice(index, 1);
-    return;
-  }
-  await googleSheetsService.deleteRecord("FontesRenda", id);
 }
 export async function listCompanies() {
   if (!googleSheetsService.isConfigured()) return [...demoCompanies];

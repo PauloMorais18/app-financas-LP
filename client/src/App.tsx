@@ -35,8 +35,6 @@ import {
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
-  BriefcaseBusiness,
-  Building2,
   CheckCircle2,
   CircleDollarSign,
   Contact,
@@ -45,7 +43,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  Filter,
   FileText,
   Home,
   Image as ImageIcon,
@@ -68,11 +65,9 @@ import { api, errorMessage } from "./services/api";
 import { supabase } from "./services/supabase";
 import type {
   AppUser,
-  Company,
   Client,
   Color,
   Group,
-  IncomeSource,
   Order,
   OrderInput,
   OrderProductItem,
@@ -88,7 +83,6 @@ const APP_BUILD_ID = "group-sharing-debug-v1";
 const transactionSchema = z.object({
   userId: z.string().min(1, "Selecione o usuário"),
   groupId: z.string().min(1, "Selecione o grupo"),
-  sourceId: z.string().optional(),
   date: z.string().min(1, "Informe a data"),
   description: z.string().trim().min(2, "Informe o título"),
   value: z.coerce.number().positive("Informe um valor válido"),
@@ -144,13 +138,11 @@ const todayBrasilia = () => {
 
 type TransactionPreferences = Pick<
   TransactionInput,
-  "sourceId" | "recurring" | "category" | "paymentMethod" | "status"
+  "recurring" | "category" | "paymentMethod" | "status"
 >;
 const preferenceKey = (userId: string) =>
   `finanbase-transaction-preferences:${userId}`;
-const incomeSourceKey = (userId: string) => `finanbase-income-source:${userId}`;
 const defaultPreferences: TransactionPreferences = {
-  sourceId: "",
   recurring: false,
   category: "Outros",
   paymentMethod: "Não informado",
@@ -163,7 +155,6 @@ const readPreferences = (userId: string): TransactionPreferences => {
     return {
       ...defaultPreferences,
       ...cached,
-      sourceId: cached.sourceId || localStorage.getItem(incomeSourceKey(userId)) || "",
     };
   } catch {
     return defaultPreferences;
@@ -175,8 +166,6 @@ const savePreferences = (
 ) => {
   if (userId)
     localStorage.setItem(preferenceKey(userId), JSON.stringify(preferences));
-  if (userId && preferences.sourceId)
-    localStorage.setItem(incomeSourceKey(userId), preferences.sourceId);
 };
 
 type AuthUser = { id: string; name: string; email?: string };
@@ -309,12 +298,9 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="dashboard" element={<Navigate to="/" replace />} />
-          <Route path="usuarios" element={<UserManagement notify={notify} />} />
+          <Route path="usuarios" element={<Navigate to="/perfil" replace />} />
+          <Route path="perfil" element={<UserManagement notify={notify} />} />
           <Route path="grupos" element={<GroupManagement notify={notify} />} />
-          <Route
-            path="fontes-renda"
-            element={<IncomeSources notify={notify} />}
-          />
           <Route
             path="ganhos"
             element={<Movements type="income" notify={notify} />}
@@ -345,7 +331,6 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
             path="configuracoes"
             element={<Configuration notify={notify} />}
           />
-          <Route path="configuracoes/modulos" element={<ContractedModules />} />
         </Route>
       </Routes>
       {toast && (
@@ -360,7 +345,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
 function Layout() {
   const [open, setOpen] = useState(false),
     [registrationsOpen, setRegistrationsOpen] = useState(true),
-    { users, activeUserId, activeUser, setActiveUserId, groups, activeGroupId, activeGroup, setActiveGroupId, logout } = useSession();
+    { authenticatedUserId, users, activeUserId, activeUser, setActiveUserId, groups, activeGroupId, activeGroup, setActiveGroupId, logout } = useSession();
   return (
     <div className="shell">
       <aside className={open ? "open" : ""}>
@@ -378,14 +363,6 @@ function Layout() {
           <NavLink to="/" end>
             <Home />
             Dashboard
-          </NavLink>
-          <NavLink to="/usuarios">
-            <Users />
-            Usuários
-          </NavLink>
-          <NavLink to="/fontes-renda">
-            <BriefcaseBusiness />
-            Fontes de renda
           </NavLink>
           <NavLink to="/grupos">
             <Users />
@@ -415,13 +392,12 @@ function Layout() {
             <Settings />
             Configurações
           </NavLink>
-          <NavLink to="/configuracoes/modulos"><Package />Módulos contratados</NavLink>
         </nav>
         <div className="user-card">
-          <NavLink to="/usuarios" className="user-card-profile" onClick={() => setOpen(false)} aria-label="Abrir meu perfil" title="Abrir meu perfil">
-            <span>{activeUser?.name?.[0] || "?"}</span>
+          <NavLink to="/perfil" className="user-card-profile" onClick={() => setOpen(false)} aria-label="Abrir meu perfil" title="Abrir meu perfil">
+            <span>{users.find(user => user.id === authenticatedUserId)?.name?.[0] || "?"}</span>
             <div>
-              <b>{activeUser?.name || "Selecione"}</b>
+              <b>{users.find(user => user.id === authenticatedUserId)?.name || "Meu perfil"}</b>
               <small>Ver meu perfil</small>
             </div>
           </NavLink>
@@ -470,7 +446,7 @@ function Layout() {
               ))}
             </select>
           </label>
-          <NavLink to="/usuarios" className="edit-user" aria-label="Editar usuário selecionado" title="Editar usuário"><Pencil /></NavLink>
+          <NavLink to="/perfil" className="edit-user" aria-label="Editar usuário selecionado" title="Editar usuário"><Pencil /></NavLink>
           </div>
           <NavLink to="/despesas/nova" className="primary header-action">
             <Plus />
@@ -514,9 +490,7 @@ function useLoad<T>(url: string, initial: T) {
 
 function Dashboard() {
   const { activeUserId, activeGroupId } = useSession(),
-    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
-    [sourceId, setSourceId] = useState(() => localStorage.getItem(incomeSourceKey(activeUserId)) || ""),
-    params = query({ groupId: activeGroupId, sourceId }),
+    params = query({ groupId: activeGroupId }),
     summary = useLoad(`/dashboard/summary?${params}`, {
       balance: 0,
       income: 0,
@@ -529,33 +503,15 @@ function Dashboard() {
       evolution: { date: string; balance: number }[];
     }>(`/dashboard/charts?${params}`, { monthly: [], evolution: [] }),
     recent = useLoad<{ data: Transaction[] }>(
-      `/transactions?${query({ groupId: activeGroupId, sourceId, limit: "5" })}`,
+      `/transactions?${query({ groupId: activeGroupId, limit: "5" })}`,
       { data: [] },
     );
-  useEffect(() => {
-    const cached = localStorage.getItem(incomeSourceKey(activeUserId)) || "";
-    const valid = !cached || sources.data.some((source) => source.id === cached && source.active);
-    setSourceId(valid ? cached : "");
-  }, [activeUserId, sources.data]);
-  const selectSource = (value: string) => {
-    setSourceId(value);
-    localStorage.setItem(incomeSourceKey(activeUserId), value);
-  };
   return (
     <div className="dashboard-bank">
       <PageHeading
         title="Dashboard"
-        subtitle="Controle ganhos e despesas por usuário e fonte de renda."
+        subtitle="Controle ganhos e despesas por grupo."
       >
-        <label className="dashboard-source">
-          <span>Fonte de renda</span>
-          <select value={sourceId} onChange={(event) => selectSource(event.target.value)}>
-            <option value="">Todas as fontes</option>
-            {sources.data.filter((source) => source.active).map((source) => (
-              <option key={source.id} value={source.id}>{source.name}</option>
-            ))}
-          </select>
-        </label>
       </PageHeading>
       {summary.error && <div className="notice error">{summary.error}</div>}
       <section className="kpis">
@@ -691,20 +647,8 @@ function Movements({
     }>(`/transactions?${query({ groupId: activeGroupId, type, limit: "100" })}`, {
       data: [],
       summary: { totalIncome: 0, totalExpense: 0 },
-    }),
-    sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId })}`,
-      [],
-    );
-  const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
-  const [selectedSourceIds, setSelectedSourceIds] = useState<string[] | null>(null);
-  const [draftSourceIds, setDraftSourceIds] = useState<string[]>([]);
-  const filteredTransactions = useMemo(
-    () => selectedSourceIds === null
-      ? load.data.data
-      : load.data.data.filter((item) => selectedSourceIds.includes(item.sourceId || "__none")),
-    [load.data.data, selectedSourceIds],
-  );
+    });
+  const filteredTransactions = load.data.data;
   const filteredTotal = useMemo(
     () => filteredTransactions
       .filter((item) => item.status === "paid")
@@ -718,18 +662,6 @@ function Movements({
           .reduce((sum, item) => sum + item.value, 0),
       [filteredTransactions],
     );
-  const openSourceFilter = () => {
-    setDraftSourceIds(selectedSourceIds ?? [...sources.data.map((source) => source.id), "__none"]);
-    setSourceFilterOpen(true);
-  };
-  const toggleDraftSource = (id: string) => setDraftSourceIds((current) =>
-    current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-  );
-  const applySourceFilter = () => {
-    const allIds = [...sources.data.map((source) => source.id), "__none"];
-    setSelectedSourceIds(draftSourceIds.length === allIds.length ? null : draftSourceIds);
-    setSourceFilterOpen(false);
-  };
   const remove = async (id: string) => {
     if (!confirm("Excluir esta movimentação?")) return;
     try {
@@ -744,10 +676,6 @@ function Movements({
     <>
       <PageHeading title={copy.title} subtitle={copy.subtitle}>
         <div className="heading-actions">
-          {income && <button type="button" className="outline source-filter-button" onClick={openSourceFilter}>
-            <Filter />
-            {selectedSourceIds === null ? "Todas as fontes" : `${selectedSourceIds.length} fonte(s)`}
-          </button>}
           <NavLink className="primary" to={copy.url}>
             <Plus />
             {copy.new}
@@ -786,26 +714,6 @@ function Movements({
           <TransactionRows data={filteredTransactions} actions onDelete={remove} />
         )}
       </article>
-      {sourceFilterOpen && <div className="modal-backdrop" onMouseDown={() => setSourceFilterOpen(false)}>
-        <div className="card source-filter-modal" role="dialog" aria-modal="true" aria-labelledby="source-filter-title" onMouseDown={(event) => event.stopPropagation()}>
-          <CardTitle title="Filtrar fontes de renda" subtitle="Selecione quais fontes devem aparecer nos ganhos." />
-          <div className="source-filter-options">
-            {sources.data.map((source) => <label key={source.id}>
-              <input type="checkbox" checked={draftSourceIds.includes(source.id)} onChange={() => toggleDraftSource(source.id)} />
-              <span>{source.name}</span>
-            </label>)}
-            <label>
-              <input type="checkbox" checked={draftSourceIds.includes("__none")} onChange={() => toggleDraftSource("__none")} />
-              <span>Ganhos sem fonte</span>
-            </label>
-          </div>
-          <div className="form-actions">
-            <button type="button" className="outline" onClick={() => setDraftSourceIds([...sources.data.map((source) => source.id), "__none"])}>Selecionar todas</button>
-            <button type="button" className="outline" onClick={() => setSourceFilterOpen(false)}>Cancelar</button>
-            <button type="button" className="primary" onClick={applySourceFilter}>Aplicar filtro</button>
-          </div>
-        </div>
-      </div>}
     </>
   );
 }
@@ -840,12 +748,6 @@ function TransactionRows({
   actions?: boolean;
   onDelete?: (id: string) => void;
 }) {
-  const { activeGroupId } = useSession(),
-    sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId })}`,
-      [],
-    ),
-    names = new Map(sources.data.map((source) => [source.id, source.name]));
   if (!data.length) return <Empty text="Nenhuma movimentação cadastrada." />;
   return (
     <div className="rows">
@@ -858,9 +760,6 @@ function TransactionRows({
             <b>{item.description}</b>
             <small>
               {dateBR(item.date)} ·{" "}
-              {item.sourceId
-                ? names.get(item.sourceId) || "Fonte vinculada"
-                : "Sem fonte"}
               {item.recurring ? " · Recorrente" : ""}
             </small>
           </div>
@@ -901,7 +800,6 @@ function MovementForm({
       defaultValues: {
         userId: activeUserId,
         groupId: activeGroupId,
-        sourceId: initialPreferences.sourceId,
         date: todayBrasilia(),
         description: "",
         value: 0,
@@ -918,11 +816,7 @@ function MovementForm({
         paymentDate: "",
       },
     }),
-    selectedUser = form.watch("userId"),
-    sources = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId })}`,
-      [],
-    ), clients = useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]),
+    clients = useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]),
     products = useLoad<Product[]>(`/products?${query({groupId:activeGroupId})}`,[]);
   const quickCatalog=async(kind:"clients"|"products")=>{const name=prompt(`Nome do ${kind==="clients"?"cliente":"produto"}:`)?.trim();if(!name)return;try{const response=await api.post<Client|Product>(`/${kind}`,{userId:activeUserId,groupId:activeGroupId,name});form.setValue(kind==="clients"?"clientId":"productId",response.data.id);if(kind==="clients")clients.reload();else products.reload();notify("Cadastro rápido concluído.")}catch(error){notify(errorMessage(error),true)}};
   useEffect(() => {
@@ -943,7 +837,6 @@ function MovementForm({
       const preferences = readPreferences(activeUserId);
       form.setValue("userId", activeUserId, { shouldValidate: true });
       form.setValue("groupId", activeGroupId, { shouldValidate: true });
-      form.setValue("sourceId", preferences.sourceId);
       form.setValue("recurring", preferences.recurring);
       form.setValue("category", preferences.category);
       form.setValue("paymentMethod", preferences.paymentMethod);
@@ -951,21 +844,10 @@ function MovementForm({
     }
   }, [activeUserId, activeGroupId, id]);
   useEffect(() => {
-    if (id || sources.loading || !selectedUser) return;
-    const activeSources = sources.data.filter((source) => source.active);
-    const cached = readPreferences(selectedUser);
-    const sourceId = activeSources.some((source) => source.id === cached.sourceId)
-      ? cached.sourceId
-      : activeSources[0]?.id || "";
-    if (form.getValues("sourceId") !== sourceId)
-      form.setValue("sourceId", sourceId);
-  }, [id, selectedUser, sources.loading, sources.data]);
-  useEffect(() => {
     if (id) return;
     const subscription = form.watch((values) => {
       if (!values.userId) return;
       savePreferences(values.userId, {
-        sourceId: values.sourceId || "",
         recurring: Boolean(values.recurring),
         category: values.category || defaultPreferences.category,
         paymentMethod:
@@ -997,7 +879,7 @@ function MovementForm({
               ? "Registrar ganho"
               : "Registrar despesa"
         }
-        subtitle="Vincule o lançamento ao usuário e à fonte de renda."
+        subtitle="Vincule o registro ao grupo."
       />
       <article className="card form-card">
         {loading ? (
@@ -1058,18 +940,6 @@ function MovementForm({
                     ))}
                 </select>
               </Field>
-              <Field label="Fonte de renda">
-                <select {...form.register("sourceId")}>
-                  <option value="">Sem fonte específica</option>
-                  {sources.data
-                    .filter((source) => source.active)
-                    .map((source) => (
-                      <option key={source.id} value={source.id}>
-                        {source.name}
-                      </option>
-                    ))}
-                </select>
-              </Field>
               {activeGroup?.workshopContracted && activeGroup.workshopEnabled && <>
                 {type === "income" ? <>
                   <Field label="ServiÃ§o / veÃ­culo"><input placeholder="Ex.: Troca de Ã³leo â€” Gol" {...form.register("vehicle")} /></Field>
@@ -1126,7 +996,6 @@ const orderStatusLabel = {
   delivered: "Entregue",
   cancelled: "Cancelado",
 } as const;
-const orderSourceKey = incomeSourceKey;
 type OrderQueueFilter = "all" | "pending" | "ready" | "delivered";
 const orderQueueFilters: { value: OrderQueueFilter; label: string }[] = [
   { value: "all", label: "Todos" },
@@ -1142,23 +1011,9 @@ const savedOrderStatusFilter = (groupId: string): OrderQueueFilter => {
 
 function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { activeUserId, activeGroupId } = useSession(),
-    sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []),
-    [sourceId, setSourceId] = useState(() => localStorage.getItem(orderSourceKey(activeUserId)) || ""),
     [statusFilter, setStatusFilter] = useState<OrderQueueFilter>(() => savedOrderStatusFilter(activeGroupId));
   useEffect(() => setStatusFilter(savedOrderStatusFilter(activeGroupId)), [activeGroupId]);
-  useEffect(() => {
-    const cached = localStorage.getItem(orderSourceKey(activeUserId)) || "";
-    const available = sources.data.filter((source) => source.active);
-    const next = available.some((source) => source.id === cached) ? cached : "";
-    setSourceId(next);
-    if (!next) localStorage.removeItem(orderSourceKey(activeUserId));
-  }, [activeUserId, sources.data]);
-  const orders = useLoad<Order[]>(`/orders?${query({ groupId: activeGroupId, sourceId })}`, []),
-    changeSource = (value: string) => {
-      setSourceId(value);
-      if (value) localStorage.setItem(orderSourceKey(activeUserId), value);
-      else localStorage.removeItem(orderSourceKey(activeUserId));
-    },
+  const orders = useLoad<Order[]>(`/orders?${query({ groupId: activeGroupId })}`, []),
     updateOrder = async (order: Order, changes: Partial<Pick<Order, "status" | "paid">>) => {
       try {
         await api.put(`/orders/${order.id}`, { ...order, ...changes, paid: changes.status === "delivered" ? true : (changes.paid ?? order.paid) });
@@ -1185,12 +1040,6 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
       <NavLink className="primary" to="/pedidos/novo"><Plus />Cadastrar pedido</NavLink>
     </PageHeading>
     <article className="card order-filter">
-      <Field label="Fonte de renda">
-        <select value={sourceId} onChange={(event) => changeSource(event.target.value)}>
-          <option value="">Todas as fontes</option>
-          {sources.data.filter((source) => source.active).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}
-        </select>
-      </Field>
       <div className="order-totals">
         <div><small>Total de pedidos</small><strong>{visibleOrders.length}</strong></div>
         <div><small>Valor total dos pedidos</small><strong>{money.format(totalOrderValue)}</strong></div>
@@ -1223,16 +1072,15 @@ function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => 
           <button className="icon-button danger" onClick={() => remove(order.id)} aria-label="Excluir pedido"><Trash2 /></button>
         </div>
       </article>)}
-      {!orders.loading && !visibleOrders.length && <article className="card order-empty"><Empty text={!sourceId ? "Cadastre uma fonte de renda para criar pedidos." : orders.data.length ? "Nenhum pedido encontrado neste filtro." : "Nenhum pedido nesta fila."} /></article>}
+      {!orders.loading && !visibleOrders.length && <article className="card order-empty"><Empty text={orders.data.length ? "Nenhum pedido encontrado neste filtro." : "Nenhum pedido nesta fila."} /></article>}
     </section>
   </>;
 }
 
 function OrderForm({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { id } = useParams(), navigate = useNavigate(), { activeUserId, activeGroupId } = useSession();
-  const sources = useLoad<IncomeSource[]>(`/income-sources?${query({ groupId: activeGroupId })}`, []);
   const [values, setValues] = useState<OrderInput & Pick<Partial<Order>, "lastEditedById" | "lastEditedByName">>({
-      userId: activeUserId, groupId: activeGroupId, sourceId: localStorage.getItem(orderSourceKey(activeUserId)) || "",
+      userId: activeUserId, groupId: activeGroupId,
       colorId: "",
       clientId: "", productId: "", productIds: [], productItems: [],
       title: "", customer: "", dueDate: todayBrasilia(), value: 0,
@@ -1259,13 +1107,8 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     }).catch((error) => notify(errorMessage(error), true)).finally(() => setLoading(false));
   }, [id]);
   useEffect(() => {
-    if (id || sources.loading) return;
-    const cached = localStorage.getItem(orderSourceKey(activeUserId)) || "";
-    const active = sources.data.filter((source) => source.active);
-    const sourceId = active.some((source) => source.id === cached) ? cached : active[0]?.id || "";
-    setValues((current) => ({ ...current, userId: activeUserId, groupId: activeGroupId, sourceId }));
-    if (sourceId) localStorage.setItem(orderSourceKey(activeUserId), sourceId);
-  }, [id, activeUserId, activeGroupId, sources.loading, sources.data]);
+    if (!id) setValues(current => ({...current, userId: activeUserId, groupId: activeGroupId}));
+  }, [id, activeUserId, activeGroupId]);
   const set = <K extends keyof OrderInput>(key: K, value: OrderInput[K]) => setValues((current) => ({ ...current, [key]: value }));
   const selectedProductItems: OrderProductItem[] = values.productItems?.length ? values.productItems : (values.productIds || (values.productId ? [values.productId] : [])).map((productId, index) => { const product=products.data.find((item)=>item.id===productId); return {productId,name:product?.name||values.productNames?.[index]||"Produto",quantity:1,saleValue:product?.saleValue||0}; });
   const selectedProductIds = selectedProductItems.map((item) => item.productId);
@@ -1285,7 +1128,6 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
     event.preventDefault();
     try {
       id ? await api.put(`/orders/${id}`, values) : await api.post("/orders", values);
-      localStorage.setItem(orderSourceKey(activeUserId), values.sourceId);
       notify(id ? "Pedido atualizado." : "Pedido cadastrado.");
       navigate("/pedidos");
     } catch (error) { notify(errorMessage(error), true); }
@@ -1311,7 +1153,6 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
           <Field label="Pedido"><input value={values.title} onChange={(e) => set("title", e.target.value)} placeholder="Ex.: 50 peças personalizadas" required /></Field>
           <Field label="Cliente"><div className="client-search" onBlur={(event)=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))setClientOpen(false)}}><input value={values.customer} onFocus={()=>setClientOpen(true)} onChange={(e)=>{set("customer",e.target.value);set("clientId","");setClientOpen(true)}} placeholder="Digite o nome do cliente" autoComplete="off" required />{clientOpen&&values.customer.trim()&&<div className="client-suggestions">{clientSuggestions.map((item)=><button type="button" key={item.id} onMouseDown={(event)=>event.preventDefault()} onClick={()=>{set("clientId",item.id);set("customer",item.name);setClientOpen(false)}}>{item.name}</button>)}{!clients.loading&&!clientSuggestions.length&&<small>Nenhum cliente encontrado.</small>}<button type="button" className="client-quick-add" onMouseDown={(event)=>event.preventDefault()} onClick={()=>openQuickCatalog("clients",values.customer)}><Plus/>Cadastrar cliente rapidamente</button></div>}</div></Field>
           <Field label="Produtos"><div className="select-add"><div className="client-search product-search" onBlur={(event)=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))setProductOpen(false)}}><input value={productSearch} onFocus={()=>setProductOpen(true)} onChange={(event)=>{setProductSearch(event.target.value);setProductOpen(true)}} placeholder="Digite o nome do produto" autoComplete="off" />{productOpen&&<div className="client-suggestions product-suggestions">{productSuggestions.map((item)=><button type="button" key={item.id} onMouseDown={(event)=>event.preventDefault()} onClick={()=>selectProduct(item.id)}><span>{item.name}</span><strong>{money.format(item.saleValue)}</strong></button>)}{!products.loading&&!productSuggestions.length&&<small>Nenhum produto encontrado.</small>}<button type="button" className="client-quick-add" onMouseDown={(event)=>event.preventDefault()} onClick={()=>openQuickCatalog("products",productSearch)}><Plus/>Cadastrar produto rapidamente</button></div>}</div><button type="button" className="outline" onClick={()=>openQuickCatalog("products",productSearch)}><Plus/>Novo produto</button></div>{selectedProductItems.length > 0 && <div className="selected-products">{selectedProductItems.map((item) => <div className="selected-product" key={item.productId}><span>{item.name}</span><label>Qtd.<input type="number" min="1" step="1" value={item.quantity} onChange={(event)=>updateProductQuantity(item.productId,Number(event.target.value))}/></label><label>Valor un.<div className="product-price"><span>R$</span><CurrencyInput value={item.saleValue} onChange={(value)=>updateProductSaleValue(item.productId,value)}/></div></label><strong>{money.format(item.saleValue*item.quantity)}</strong><button type="button" onClick={() => removeProduct(item.productId)} aria-label={`Remover ${item.name}`}><X /></button></div>)}</div>}</Field>
-          <Field label="Fonte de renda"><select value={values.sourceId} onChange={(e) => { set("sourceId", e.target.value); localStorage.setItem(orderSourceKey(activeUserId), e.target.value); }} required><option value="">Selecione</option>{sources.data.filter((source) => source.active).map((source) => <option key={source.id} value={source.id}>{source.name}</option>)}</select></Field>
           <Field label="Prazo"><input type="date" value={values.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></Field>
           <Field label="Cor">
             <div className="color-picker-field">
@@ -1333,7 +1174,7 @@ function OrderForm({ notify }: { notify: (message: string, error?: boolean) => v
           <label className={`order-paid order-paid-form ${values.paid ? "checked" : ""}`}><input type="checkbox" checked={values.paid} disabled={values.status === "delivered"} onChange={(e)=>set("paid",e.target.checked)} /><span>{values.paid ? "Pedido pago" : "Pedido não pago"}</span>{values.status === "delivered" && <small>Pedidos entregues são pagos automaticamente.</small>}</label>
           <Field label="Observações" wide><textarea rows={4} value={values.observation} onChange={(e) => set("observation", e.target.value)} /></Field>
         </div>
-        <div className="form-actions"><button type="button" className="outline" onClick={() => navigate("/pedidos")}>Cancelar</button><button className="primary" disabled={!values.sourceId || !values.title.trim() || !values.customer.trim()}>{id ? "Salvar alterações" : "Cadastrar pedido"}</button></div>
+        <div className="form-actions"><button type="button" className="outline" onClick={() => navigate("/pedidos")}>Cancelar</button><button className="primary" disabled={!values.title.trim() || !values.customer.trim()}>{id ? "Salvar alterações" : "Cadastrar pedido"}</button></div>
       </form>}
     </article>
     {colorModal && <div className="modal-backdrop" onMouseDown={() => setColorModal(false)}>
@@ -1390,228 +1231,6 @@ function CatalogManagement({kind,notify}:{kind:"clients"|"products";notify:(mess
         <Field label="Link do arquivo 3MF ou STL (Drive)" wide><input type="url" value={modelFileUrl} onChange={e=>setModelFileUrl(e.target.value)} placeholder="https://drive.google.com/..."/></Field></>}
     </div><div className="form-actions">{editing&&<button type="button" className="outline" onClick={clear}>Cancelar</button>}<button className="primary" disabled={!name.trim()}>Salvar cadastro</button></div></form></article>
     <article className="card"><CardTitle title={isClient?"Clientes cadastrados":"Produtos cadastrados"} subtitle={`${records.data.length} registro(s)`}/><div className="catalog-search"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Buscar ${isClient?"cliente":"produto"} por nome...`}/></div><div className="simple-list">{visibleCatalogRecords.map(record=><div className={`list-row ${"imageUrl" in record?"product-list-row":""}`} key={record.id}>{"imageUrl" in record&&(record.imageUrl?<img className="product-thumbnail" src={record.imageUrl} alt={record.name}/>:<span className="product-thumbnail placeholder"><ImageIcon/></span>)}<div><b>{record.name}</b><small>{"place" in record?[record.place,record.phone].filter(Boolean).join(" · ")||"Somente nome":`Custo ${money.format(record.totalCost)} · Venda ${money.format(record.saleValue)} · Impressão ${record.printingTimeMinutes?`${Math.floor(record.printingTimeMinutes/60)}h${record.printingTimeMinutes%60?` ${record.printingTimeMinutes%60}min`:""}`:"não informada"}`}</small>{"modelFileUrl" in record&&record.modelFileUrl&&<a className="model-file-link" href={record.modelFileUrl} target="_blank" rel="noreferrer"><ExternalLink/>Abrir arquivo 3MF/STL</a>}</div><div className="row-actions"><button onClick={()=>edit(record)}><Pencil/></button><button onClick={()=>remove(record.id)}><Trash2/></button></div></div>)}{!records.loading&&!visibleCatalogRecords.length&&<Empty text={search?"Nenhum cadastro encontrado nesta busca.":"Nenhum cadastro encontrado."}/>}</div></article></section></>;
-}
-
-function IncomeSources({
-  notify,
-}: {
-  notify: (message: string, error?: boolean) => void;
-}) {
-  const { activeUserId, activeUser, activeGroupId } = useSession(),
-    load = useLoad<IncomeSource[]>(
-      `/income-sources?${query({ groupId: activeGroupId })}`,
-      [],
-    ),
-    companies = useLoad<Company[]>(
-      `/companies?${query({ groupId: activeGroupId })}`,
-      [],
-    ),
-    [name, setName] = useState(""),
-    [description, setDescription] = useState(""),
-    [editingSourceId, setEditingSourceId] = useState<string>(),
-    [companyName, setCompanyName] = useState(""),
-    [editingCompanyId, setEditingCompanyId] = useState<string>();
-  const clearSource = () => {
-    setEditingSourceId(undefined);
-    setName("");
-    setDescription("");
-  };
-  const add = async (event: FormEvent) => {
-    event.preventDefault();
-    try {
-      editingSourceId
-        ? await api.put(`/income-sources/${editingSourceId}`, {
-            userId: activeUserId,
-            groupId: activeGroupId,
-            name,
-            description,
-            active: true,
-          })
-        : await api.post("/income-sources", {
-            userId: activeUserId,
-            groupId: activeGroupId,
-            name,
-            description,
-          });
-      clearSource();
-      load.reload();
-      notify(editingSourceId ? "Fonte de renda atualizada." : "Fonte de renda criada.");
-    } catch (error) {
-      notify(errorMessage(error), true);
-    }
-  };
-  const editSource = (source: IncomeSource) => {
-    setEditingSourceId(source.id);
-    setName(source.name);
-    setDescription(source.description);
-  };
-  const saveCompany = async (event: FormEvent) => {
-    event.preventDefault();
-    try {
-      editingCompanyId
-        ? await api.put(`/companies/${editingCompanyId}`, {
-            userId: activeUserId,
-            groupId: activeGroupId,
-            name: companyName,
-            active: true,
-          })
-        : await api.post("/companies", { userId: activeUserId, groupId: activeGroupId, name: companyName });
-      setCompanyName("");
-      setEditingCompanyId(undefined);
-      companies.reload();
-      notify(editingCompanyId ? "Empresa atualizada." : "Empresa cadastrada.");
-    } catch (error) {
-      notify(errorMessage(error), true);
-    }
-  };
-  const removeCompany = async (id: string) => {
-    if (!confirm("Excluir esta empresa?")) return;
-    try {
-      await api.delete(`/companies/${id}`);
-      companies.reload();
-      notify("Empresa excluída.");
-    } catch (error) {
-      notify(errorMessage(error), true);
-    }
-  };
-  const remove = async (id: string) => {
-    if (!confirm("Excluir esta fonte de renda? Os pedidos e movimentações serão preservados, sem vínculo com a fonte.")) return;
-    try {
-      await api.delete(`/income-sources/${id}`);
-      load.reload();
-      notify("Fonte de renda excluída.");
-    } catch (error) {
-      notify(errorMessage(error), true);
-    }
-  };
-  return (
-    <>
-      <PageHeading
-        title="Fontes de renda"
-        subtitle={`Organize os negócios e atividades de ${activeUser?.name || "cada usuário"}.`}
-      />
-      <div className="settings-grid source-layout">
-        <article className="card form-card">
-          <CardTitle
-            title={editingSourceId ? "Editar fonte" : "Nova fonte"}
-            subtitle="Ex.: Impressão 3D, consultoria ou loja."
-          />
-          <form onSubmit={add}>
-            <div className="form-grid one">
-              <Field label="Nome">
-                <input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Impressão 3D"
-                  required
-                />
-              </Field>
-              <Field label="Descrição">
-                <textarea
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  rows={3}
-                  placeholder="Produtos, serviços e custos relacionados"
-                />
-              </Field>
-            </div>
-            <div className="form-actions">
-              {editingSourceId && (
-                <button type="button" className="outline" onClick={clearSource}>
-                  Cancelar
-                </button>
-              )}
-              <button className="primary" disabled={!activeUserId}>
-                {editingSourceId ? <Pencil /> : <Plus />}
-                {editingSourceId ? "Salvar alterações" : "Criar fonte"}
-              </button>
-            </div>
-          </form>
-        </article>
-        <article className="card table-card">
-          <CardTitle
-            title="Fontes cadastradas"
-            subtitle={`${load.data.length} fonte(s) do usuário ativo`}
-          />
-          {load.loading ? (
-            <Empty text="Carregando..." />
-          ) : (
-            <div className="source-list">
-              {load.data.map((source) => (
-                <div className="source-item" key={source.id}>
-                  <span>
-                    <BriefcaseBusiness />
-                  </span>
-                  <div>
-                    <b>{source.name}</b>
-                    <small>{source.description || "Sem descrição"}</small>
-                  </div>
-                  <div className="user-actions">
-                    <button className="icon-button" onClick={() => editSource(source)} aria-label="Editar fonte">
-                      <Pencil />
-                    </button>
-                    <button className="icon-button danger" onClick={() => remove(source.id)} aria-label="Excluir fonte">
-                      <Trash2 />
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {!load.data.length && (
-                <Empty text="Nenhuma fonte de renda cadastrada." />
-              )}
-            </div>
-          )}
-        </article>
-      </div>
-      <div className="settings-grid source-layout company-layout">
-        <article className="card form-card">
-          <CardTitle
-            title={editingCompanyId ? "Editar empresa" : "Nova empresa"}
-            subtitle="Cadastre clientes e empresas que pagam mensalidades."
-          />
-          <form onSubmit={saveCompany}>
-            <div className="form-grid one">
-              <Field label="Empresa">
-                <input
-                  value={companyName}
-                  onChange={(event) => setCompanyName(event.target.value)}
-                  placeholder="Nome da empresa"
-                  required
-                />
-              </Field>
-            </div>
-            <div className="form-actions">
-              {editingCompanyId && (
-                <button type="button" className="outline" onClick={() => { setEditingCompanyId(undefined); setCompanyName(""); }}>
-                  Cancelar
-                </button>
-              )}
-              <button className="primary" disabled={!activeUserId}>
-                {editingCompanyId ? <Pencil /> : <Plus />}
-                {editingCompanyId ? "Salvar alterações" : "Cadastrar empresa"}
-              </button>
-            </div>
-          </form>
-        </article>
-        <article className="card table-card">
-          <CardTitle title="Empresas cadastradas" subtitle={`${companies.data.length} empresa(s) do usuário ativo`} />
-          <div className="source-list">
-            {companies.data.map((company) => (
-              <div className="source-item" key={company.id}>
-                <span><Building2 /></span>
-                <div><b>{company.name}</b><small>Empresa</small></div>
-                <div className="user-actions">
-                  <button className="icon-button" onClick={() => { setEditingCompanyId(company.id); setCompanyName(company.name); }} aria-label="Editar empresa"><Pencil /></button>
-                  <button className="icon-button danger" onClick={() => removeCompany(company.id)} aria-label="Excluir empresa"><Trash2 /></button>
-                </div>
-              </div>
-            ))}
-            {!companies.loading && !companies.data.length && <Empty text="Nenhuma empresa cadastrada." />}
-          </div>
-        </article>
-      </div>
-    </>
-  );
 }
 
 function UserManagement({
@@ -1805,23 +1424,13 @@ type SheetsSettings = {
   message?: string;
 };
 
-function ContractedModules(){
-  const {activeGroup}=useSession();
-  const modules=[
-    {name:"Financeiro",description:"Dashboard, ganhos, despesas e fontes de renda.",contracted:true,enabled:true},
-    {name:"Pedidos e produtos",description:"Pedidos, clientes, produtos e controle de produção.",contracted:true,enabled:true},
-    {name:"Oficina",description:"Serviços, veículos, fornecedores, contas a receber e relatórios da oficina.",contracted:Boolean(activeGroup?.workshopContracted),enabled:Boolean(activeGroup?.workshopContracted&&activeGroup?.workshopEnabled)},
-  ];
-  return <><PageHeading title="Módulos contratados" subtitle={`Recursos disponíveis para ${activeGroup?.name||"o grupo selecionado"}.`}/><section className="module-grid">{modules.map(module=><article className={`card module-card ${module.contracted?"contracted":"locked"}`} key={module.name}><span className="module-icon">{module.contracted?<CheckCircle2/>:<Lock/>}</span><div><h3>{module.name}</h3><p>{module.description}</p></div><strong>{!module.contracted?"Não contratado":module.enabled?"Ativo":"Contratado · desativado"}</strong>{!module.contracted&&<small>Entre em contato para contratar este módulo.</small>}</article>)}</section></>;
-}
-
 function WorkshopReports() {
   const { activeGroupId, activeGroup } = useSession();
   const now = new Date(), firstDay = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`;
   const [startDate,setStartDate]=useState(firstDay),[endDate,setEndDate]=useState(todayBrasilia());
   const load=useLoad<{data:Transaction[]}>(`/transactions?${query({groupId:activeGroupId,startDate,endDate,limit:"1000"})}`,{data:[]});
   const clients=useLoad<Client[]>(`/clients?${query({groupId:activeGroupId})}`,[]);
-  if(!activeGroup?.workshopContracted||!activeGroup.workshopEnabled)return <Navigate to="/configuracoes/modulos" replace/>;
+  if(!activeGroup?.workshopContracted||!activeGroup.workshopEnabled)return <Navigate to="/configuracoes" replace/>;
   const clientName=(id?:string)=>clients.data.find(item=>item.id===id)?.name||"—";
   const income=load.data.data.filter(item=>item.type==="income"&&item.status!=="cancelled");
   const expenses=load.data.data.filter(item=>item.type==="expense"&&item.status!=="cancelled");
@@ -1947,7 +1556,7 @@ function Configuration({
           </div>
           <div>
             <dt>Tabelas</dt>
-            <dd>Perfis, movimentações, fontes de renda, empresas, cores e pedidos</dd>
+            <dd>Perfis, empresas, cores, pedidos e registros financeiros</dd>
           </div>
           <div>
             <dt>Autenticação</dt>

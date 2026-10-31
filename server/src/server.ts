@@ -12,7 +12,6 @@ const app = express();
 const orderSchema = z.object({
   userId: z.string().trim().min(1),
   groupId: z.string().trim().min(1),
-  sourceId: z.string().trim().min(1),
   colorId: z.string().trim().default(""),
   title: z.string().trim().min(2).max(120),
   customer: z.string().trim().min(2).max(120),
@@ -178,95 +177,14 @@ app.delete(
   "/api/users/:id",
   safe(async (req, res) => {
     const id = String(req.params.id);
-    const hasSources = (await store.listSources()).some((item) => item.userId === id);
     const hasCompanies = (await store.listCompanies()).some((item) => item.userId === id);
     const hasTransactions = (await store.list()).some((item) => item.userId === id);
     const hasOrders = (await store.listOrders()).some((item) => item.userId === id);
-    if (hasSources || hasCompanies || hasTransactions || hasOrders)
+    if (hasCompanies || hasTransactions || hasOrders)
       return res.status(409).json({
-        message: "Este usuário possui fontes ou movimentações e não pode ser excluído.",
+        message: "Existem registros vinculados a este perfil.",
       });
     await store.removeUser(id);
-    res.status(204).end();
-  }),
-);
-app.get(
-  "/api/income-sources",
-  safe(async (req, res) => {
-    const userId = String(req.query.userId || "");
-    const groupId = String(req.query.groupId || "");
-    const data = (await store.listSources()).filter(
-      (source) => (!userId || source.userId === userId) && (!groupId || source.groupId === groupId),
-    );
-    res.json(data);
-  }),
-);
-app.post(
-  "/api/income-sources",
-  safe(async (req, res) => {
-    const input = req.body as {
-      userId?: string;
-      groupId?: string;
-      name?: string;
-      description?: string;
-    };
-    if (!input.userId || !input.name?.trim())
-      return res
-        .status(400)
-        .json({ message: "Informe o usuário e o nome da fonte de renda." });
-    if (!(await store.listUsers()).some((user) => user.id === input.userId))
-      return res.status(400).json({ message: "Usuário não encontrado." });
-    res
-      .status(201)
-      .json(
-        await store.createSource({
-          userId: input.userId,
-          groupId: input.groupId,
-          name: input.name.trim(),
-          description: String(input.description || "").trim(),
-        }),
-      );
-  }),
-);
-app.put(
-  "/api/income-sources/:id",
-  safe(async (req, res) => {
-    const input = req.body as {
-      userId?: string;
-      groupId?: string;
-      name?: string;
-      description?: string;
-      active?: boolean;
-    };
-    if (!input.userId || !input.name?.trim())
-      return res.status(400).json({ message: "Informe o usuário e o nome da fonte de renda." });
-    if (!(await store.listUsers()).some((user) => user.id === input.userId))
-      return res.status(400).json({ message: "Usuário não encontrado." });
-    res.json(await store.updateSource(String(req.params.id), {
-      userId: input.userId,
-      groupId: input.groupId,
-      name: input.name.trim(),
-      description: String(input.description || "").trim(),
-      active: input.active ?? true,
-    }));
-  }),
-);
-app.delete(
-  "/api/income-sources/:id",
-  safe(async (req, res) => {
-    const used = (await store.list()).some(
-      (item) => item.sourceId === String(req.params.id),
-    );
-    const usedByOrder = (await store.listOrders()).some(
-      (item) => item.sourceId === String(req.params.id),
-    );
-    if (used || usedByOrder)
-      return res
-        .status(409)
-        .json({
-          message: "Esta fonte possui movimentações e não pode ser excluída.",
-        });
-    await store.removeSource(String(req.params.id));
     res.status(204).end();
   }),
 );
@@ -377,12 +295,10 @@ app.get(
   safe(async (req, res) => {
     const userId = String(req.query.userId || "");
     const groupId = String(req.query.groupId || "");
-    const sourceId = String(req.query.sourceId || "");
     const status = String(req.query.status || "");
     const data = (await store.listOrders())
       .filter((order) =>
         (!userId || order.userId === userId) && (!groupId || order.groupId === groupId) &&
-        (!sourceId || order.sourceId === sourceId) &&
         (!status || order.status === status),
       )
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
@@ -404,9 +320,6 @@ app.get(
 const validateOrderRelations = async (input: z.infer<typeof orderSchema>) => {
   if (!(await store.listUsers()).some((user) => user.id === input.userId))
     throw Object.assign(new Error("Usuário não encontrado."), { status: 400 });
-  const source = (await store.listSources()).find((item) => item.id === input.sourceId);
-  if (!source || source.userId !== input.userId)
-    throw Object.assign(new Error("Fonte de renda inválida para o usuário informado."), { status: 400 });
   if (input.colorId) {
     const color = (await store.listColors()).find((item) => item.id === input.colorId);
     if (!color || color.userId !== input.userId)
@@ -440,15 +353,13 @@ app.get(
   "/api/transactions",
   safe(async (req, res) => {
     const q = querySchema.parse(req.query);
-    const activeSourceIds = new Set((await store.listSources()).filter((source) => source.active).map((source) => source.id));
-    let data = (await store.list()).filter((item) => item.type !== "income" || activeSourceIds.has(item.sourceId));
+    let data = await store.list();
     data = data.filter(
       (t) =>
         (!q.search ||
           t.description.toLowerCase().includes(q.search.toLowerCase())) &&
         (!q.userId || t.userId === q.userId) &&
         (!q.groupId || t.groupId === q.groupId) &&
-        (!q.sourceId || t.sourceId === q.sourceId) &&
         (!q.type || t.type === q.type) &&
         (!q.category || t.category === q.category) &&
         (!q.paymentMethod || t.paymentMethod === q.paymentMethod) &&
@@ -503,11 +414,6 @@ app.post(
     const input = transactionSchema.parse(req.body);
     if (!(await store.listUsers()).some((user) => user.id === input.userId))
       return res.status(400).json({ message: "Usuário não encontrado." });
-    if (input.sourceId) {
-      const source = (await store.listSources()).find((item) => item.id === input.sourceId);
-      if (!source || source.userId !== input.userId)
-        return res.status(400).json({ message: "Fonte de renda inválida para o usuário informado." });
-    }
     if (input.companyId) {
       const company = (await store.listCompanies()).find((item) => item.id === input.companyId);
       if (!company || company.userId !== input.userId)
@@ -522,11 +428,6 @@ app.put(
     const input = transactionSchema.parse(req.body);
     if (!(await store.listUsers()).some((user) => user.id === input.userId))
       return res.status(400).json({ message: "Usuário não encontrado." });
-    if (input.sourceId) {
-      const source = (await store.listSources()).find((item) => item.id === input.sourceId);
-      if (!source || source.userId !== input.userId)
-        return res.status(400).json({ message: "Fonte de renda inválida para o usuário informado." });
-    }
     if (input.companyId) {
       const company = (await store.listCompanies()).find((item) => item.id === input.companyId);
       if (!company || company.userId !== input.userId)
@@ -572,14 +473,11 @@ const recurringProjection = (items: Transaction[]) => {
     return copies;
   });
 };
-const dashboard = async (userId = "", sourceId = "", groupId = "") => {
-  const activeSourceIds = new Set((await store.listSources()).filter((source) => source.active).map((source) => source.id));
+const dashboard = async (userId = "", groupId = "") => {
   const source = (await store.list()).filter(
       (item) =>
         (!userId || item.userId === userId) &&
-        (!groupId || item.groupId === groupId) &&
-        (!sourceId || item.sourceId === sourceId) &&
-        (item.type !== "income" || activeSourceIds.has(item.sourceId)),
+        (!groupId || item.groupId === groupId),
     ),
     all = recurringProjection(source),
     active = all.filter((t) => t.status !== "cancelled"),
@@ -612,7 +510,6 @@ app.get(
       (
         await dashboard(
           String(q.query.userId || ""),
-          String(q.query.sourceId || ""),
           String(q.query.groupId || ""),
         )
       ).summary,
@@ -624,7 +521,6 @@ app.get(
   safe(async (q, r) => {
     const { all } = await dashboard(
       String(q.query.userId || ""),
-      String(q.query.sourceId || ""),
       String(q.query.groupId || ""),
     );
     const valid = all.filter((t) => t.status !== "cancelled");
