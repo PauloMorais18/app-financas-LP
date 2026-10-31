@@ -82,6 +82,7 @@ import type {
 } from "./types";
 import { dateBR, money } from "./utils/format";
 import "./catalog.css";
+import ConsignmentsPage from "./features/consignments/ConsignmentsPage";
 
 const APP_BUILD_ID = "group-sharing-debug-v1";
 
@@ -333,7 +334,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
             element={<MovementForm type="expense" notify={notify} />}
           />
           <Route path="pedidos" element={<OrderQueue notify={notify} />} />
-          <Route path="consignados" element={<><PageHeading title="Consignados" subtitle="Controle de produtos em consignação." /><article className="card"><Empty text="Funcionalidade em preparação." /></article></>} />
+          <Route path="consignados" element={<ConsignmentsPage key={activeGroupId} groupId={activeGroupId} notify={notify} />} />
           <Route path="ordem-producao" element={<><PageHeading title="Ordem de produção" subtitle="Organização da produção." /><article className="card"><Empty text="Funcionalidade em preparação." /></article></>} />
           <Route path="pedidos/novo" element={<OrderForm notify={notify} />} />
           <Route path="pedidos/:id" element={<OrderForm notify={notify} />} />
