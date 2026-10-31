@@ -318,6 +318,8 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
             element={<MovementForm type="expense" notify={notify} />}
           />
           <Route path="pedidos" element={<OrderQueue notify={notify} />} />
+          <Route path="ordem-producao" element={<><PageHeading title="Ordem de produção" subtitle="Organização da produção." /><article className="card"><Empty text="Funcionalidade em preparação." /></article></>} />
+          <Route path="consignados" element={<><PageHeading title="Consignados" subtitle="Controle de produtos em consignação." /><article className="card"><Empty text="Funcionalidade em preparação." /></article></>} />
           <Route path="pedidos/novo" element={<OrderForm notify={notify} />} />
           <Route path="pedidos/:id" element={<OrderForm notify={notify} />} />
           <Route path="relatorios" element={<WorkshopReports />} />
@@ -365,9 +367,9 @@ function Layout() {
             <Home />
             Dashboard
           </NavLink>
-          <NavLink to="/grupos">
-            <Users />
-            Grupos
+          <NavLink to="/pedidos">
+            <ClipboardList />
+            Pedidos
           </NavLink>
           <button className="nav-parent" aria-expanded={movementsOpen} aria-controls="movements-menu" onClick={(event) => { event.stopPropagation(); setMovementsOpen((value) => !value); }}>
             <WalletCards /> Movimentações <span>{movementsOpen ? "−" : "+"}</span>
@@ -376,10 +378,8 @@ function Layout() {
             <NavLink to="/ganhos"><ArrowUpRight />Ganhos</NavLink>
             <NavLink to="/despesas"><ArrowDownLeft />Despesas</NavLink>
           </div>}
-          <NavLink to="/pedidos">
-            <ClipboardList />
-            Pedidos
-          </NavLink>
+          <NavLink to="/ordem-producao"><FileText />Ordem de produção</NavLink>
+          <NavLink to="/consignados"><Package />Consignados</NavLink>
           {activeGroup?.workshopContracted && activeGroup.workshopEnabled && <NavLink to="/relatorios"><FileText />RelatÃ³rios</NavLink>}
           <button className="nav-parent" onClick={(event) => { event.stopPropagation(); setRegistrationsOpen((value) => !value); }}>
             <Database /> Cadastros <span>{registrationsOpen ? "−" : "+"}</span>
@@ -388,6 +388,10 @@ function Layout() {
             <NavLink to="/cadastros/clientes"><Contact />Clientes</NavLink>
             <NavLink to="/cadastros/produtos"><Package />Produtos</NavLink>
           </div>}
+          <NavLink to="/grupos">
+            <Users />
+            Grupos
+          </NavLink>
           <NavLink to="/configuracoes">
             <Settings />
             Configurações
