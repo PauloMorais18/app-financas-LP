@@ -363,8 +363,8 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
 
 function Layout() {
   const [open, setOpen] = useState(false),
-    [registrationsOpen, setRegistrationsOpen] = useState(true),
-    [movementsOpen, setMovementsOpen] = useState(true),
+    [registrationsOpen, setRegistrationsOpen] = useState(false),
+    [movementsOpen, setMovementsOpen] = useState(false),
     { authenticatedUserId, users, activeUserId, activeUser, setActiveUserId, groups, activeGroupId, activeGroup, setActiveGroupId, logout } = useSession();
   return (
     <div className="shell">

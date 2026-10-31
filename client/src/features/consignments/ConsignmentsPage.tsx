@@ -4,12 +4,14 @@ import {money} from "../../utils/format";
 import {deleteConsignment,listConsignments,saveConsignment} from "./service";
 import {newItem,parseItems,totals,type Consignment,type DraftItem} from "./model";
 import "./consignments.css";
+import StoreActivity from "./StoreActivity";
 
 type Props={groupId:string;notify:(message:string,error?:boolean)=>void};
 export default function ConsignmentsPage({groupId,notify}:Props) {
   const [stores,setStores]=useState<Consignment[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(""),[reload,setReload]=useState(0);
   const [editor,setEditor]=useState<{store:Consignment|null}|null>(null),[name,setName]=useState(""),[items,setItems]=useState<DraftItem[]>([]);
   const [saving,setSaving]=useState(false),[deleting,setDeleting]=useState(""),[formError,setFormError]=useState("");
+  const [expanded,setExpanded]=useState<string[]>([]),[activityId,setActivityId]=useState("");
   const savingRef=useRef(false);
   useEffect(()=>{
     let active=true;
@@ -27,7 +29,7 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
   },[editor]);
   const open=(store:Consignment|null)=>{
     setName(store?.store_name||"");
-    setItems(store?store.consignment_items.map(item=>({key:crypto.randomUUID(),style:item.style,price:item.unit_price.toFixed(2).replace(".",","),quantity:String(item.quantity)})):[newItem()]);
+    setItems(store?store.consignment_items.map(item=>({key:crypto.randomUUID(),id:item.id,style:item.style,price:item.unit_price.toFixed(2).replace(".",","),quantity:String(item.quantity),cost:item.unit_cost==null?"":item.unit_cost.toFixed(2).replace(".",","),storeValue:(item.store_value||0).toFixed(2).replace(".",",")})):[newItem()]);
     setFormError("");setEditor({store});
   };
   const update=(key:string,changes:Partial<DraftItem>)=>setItems(current=>current.map(item=>item.key===key?{...item,...changes}:item));
@@ -69,10 +71,13 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
             <div className="consignment-card-heading"><span className="consignment-store-icon"><Building2/></span><h2>{store.store_name}</h2><div className="consignment-actions"><button className="icon-button" aria-label={`Editar ${store.store_name}`} title="Editar loja" onClick={()=>open(store)} disabled={Boolean(deleting)}><Pencil/></button><button className="icon-button danger" aria-label={`Excluir ${store.store_name}`} title="Excluir loja" onClick={()=>remove(store)} disabled={Boolean(deleting)}><Trash2/></button></div></div>
             <div className="consignment-table-scroll"><table><thead><tr><th>Estilo</th><th>Valor un.</th><th>Qtd.</th><th>Total</th></tr></thead><tbody>{store.consignment_items.map((item,index)=><tr key={item.id||index}><td>{item.style}</td><td>{money.format(item.unit_price)}</td><td>{item.quantity}</td><td>{money.format(Math.round(item.unit_price*100)*item.quantity/100)}</td></tr>)}</tbody></table></div>
             <footer><span><Package/>{total.quantity} chaveiro(s)</span><strong>{money.format(total.cents/100)}</strong></footer>
+            <div className="store-card-controls"><button className="outline" aria-expanded={expanded.includes(store.id)} onClick={()=>setExpanded(current=>current.includes(store.id)?current.filter(id=>id!==store.id):[...current,store.id])}>{expanded.includes(store.id)?"Recolher histórico":"Expandir histórico"}</button><button className="primary" onClick={()=>setActivityId(store.id)}>Movimentações da loja</button></div>
+            {expanded.includes(store.id)&&<StoreActivity store={store} groupId={groupId} onChanged={()=>setReload(v=>v+1)} notify={notify} onManage={()=>setActivityId(store.id)}/>}
           </article>;
         })}</section>:<div className="card consignment-empty"><Building2/><h2>Cadastre sua primeira loja parceira</h2><p>Adicione os estilos, os valores e a quantidade de chaveiros deixados em cada loja.</p><button className="primary" onClick={()=>open(null)}><Plus/>Cadastrar loja</button></div>}
       </>}
     </>}
+    {activityId&&stores.find(store=>store.id===activityId)&&<StoreActivity store={stores.find(store=>store.id===activityId)!} groupId={groupId} onChanged={()=>setReload(v=>v+1)} notify={notify} onClose={()=>setActivityId("")}/>}
     {editor&&<div className="modal-backdrop consignment-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!savingRef.current)setEditor(null)}}>
       <section className="card consignment-modal" role="dialog" aria-modal="true" aria-labelledby="consignment-editor-title" onKeyDown={event=>{
         if(event.key!=="Tab")return;
@@ -89,8 +94,10 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
             <div className="consignment-editor-items">{items.map((item,index)=><div className="consignment-editor-item" key={item.key}>
               <label className="field">Estilo {index+1}<input value={item.style} onChange={event=>update(item.key,{style:event.target.value})} placeholder="Ex.: Personagem, nome, logo" maxLength={100} required/></label>
               <label className="field">Valor unitário (R$)<input inputMode="decimal" value={item.price} onChange={event=>update(item.key,{price:event.target.value})} placeholder="12,50" required/></label>
-              <label className="field">Quantidade<input type="number" min="0" max="100000" step="1" value={item.quantity} onChange={event=>update(item.key,{quantity:event.target.value})} required/></label>
-              <button type="button" className="icon-button danger" aria-label={`Remover estilo ${index+1}`} onClick={()=>setItems(current=>current.filter(value=>value.key!==item.key))} disabled={items.length===1}><Trash2/></button>
+              <label className="field">{item.id?"Estoque atual (use movimentações)":"Quantidade inicial"}<input readOnly={Boolean(item.id)} type="number" min="0" max="100000" step="1" value={item.quantity} onChange={event=>update(item.key,{quantity:event.target.value})} required/></label>
+              <label className="field">Custo unitário (R$, opcional)<input inputMode="decimal" value={item.cost||""} onChange={event=>update(item.key,{cost:event.target.value})} placeholder="Custo de produção"/></label>
+              <label className="field">Valor da loja por chaveiro (R$)<input inputMode="decimal" value={item.storeValue??"0"} onChange={event=>update(item.key,{storeValue:event.target.value})} placeholder="0,00"/></label>
+              <button type="button" className="icon-button danger" aria-label={`Remover estilo ${index+1}`} onClick={()=>setItems(current=>current.filter(value=>value.key!==item.key))} disabled={items.length===1||Boolean(item.id)}><Trash2/></button>
             </div>)}</div>
           </fieldset>
           {formError&&<div className="notice error" role="alert">{formError}</div>}
