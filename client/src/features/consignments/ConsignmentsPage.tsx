@@ -16,6 +16,7 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
   const [saving,setSaving]=useState(false),[deleting,setDeleting]=useState(""),[formError,setFormError]=useState("");
   const [expanded,setExpanded]=useState<string[]>([]),[activityId,setActivityId]=useState("");
   const [search,setSearch]=useState(""),[showSummary,setShowSummary]=useState(false);
+  const [returnToActivity,setReturnToActivity]=useState("");
   const savingRef=useRef(false);
   useEffect(()=>{
     let active=true;
@@ -55,7 +56,9 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
       savingRef.current=true;setSaving(true);
       await saveConsignment(groupId,editor.store?.id||null,name,values,editor.store?.updated_at||null);
       try{sessionStorage.removeItem("consignment-editor:"+groupId+":"+(editor.store?.id||"new"))}catch{}
-      setEditor(null);setReload(current=>current+1);notify("Consignados salvos.");
+      setEditor(null);setReload(current=>current+1);
+      if(returnToActivity){setActivityId(returnToActivity);setReturnToActivity("")}
+      notify("Consignados salvos.");
     } catch(reason){setFormError(reason instanceof Error?reason.message:"Não foi possível salvar.")}
     finally{savingRef.current=false;setSaving(false)}
   };
@@ -97,7 +100,7 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
       </>}
     </>}
     {showSummary&&<ConsignmentSummary groupId={groupId} stores={stores} onClose={()=>setShowSummary(false)}/>}
-    {activityId&&stores.find(store=>store.id===activityId)&&<StoreActivity store={stores.find(store=>store.id===activityId)!} groupId={groupId} onChanged={()=>setReload(v=>v+1)} notify={notify} onClose={()=>setActivityId("")}/>}
+    {activityId&&stores.find(store=>store.id===activityId)&&<StoreActivity store={stores.find(store=>store.id===activityId)!} groupId={groupId} onChanged={()=>setReload(v=>v+1)} notify={notify} onEditStore={store=>{setReturnToActivity(store.id);setActivityId("");open(store)}} onClose={()=>setActivityId("")}/>}
     {editor&&<div className="modal-backdrop consignment-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!savingRef.current)setEditor(null)}}>
       <section className="card consignment-modal" role="dialog" aria-modal="true" aria-labelledby="consignment-editor-title" onKeyDown={event=>{
         if(event.key!=="Tab")return;

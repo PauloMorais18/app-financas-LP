@@ -5,8 +5,8 @@ import {money,dateBR} from "../../utils/format";
 import type {Consignment} from "./model";
 import {getConsignment,listStockMovements,recordStockMovement,reverseStockMovement} from "./service";
 import {stockForecast,financialSummary,kindLabels,localToday,movementQuantity,salePreview,type MovementKind,type StockMovement} from "./activity-model";
-type Props={store:Consignment;groupId:string;onChanged:()=>void;notify:(message:string,error?:boolean)=>void;onClose?:()=>void;onManage?:()=>void};
-export default function StoreActivity({store:initial,groupId,onChanged,notify,onClose,onManage}:Props) {
+type Props={store:Consignment;groupId:string;onChanged:()=>void;notify:(message:string,error?:boolean)=>void;onClose?:()=>void;onManage?:()=>void;onEditStore?:(store:Consignment)=>void};
+export default function StoreActivity({store:initial,groupId,onChanged,notify,onClose,onManage,onEditStore}:Props) {
   const draftKey="consignment-movement-draft:"+groupId+":"+initial.id;
   const readCache=(key:string)=>{try{return JSON.parse(sessionStorage.getItem(key)||"null")}catch{return null}};
   const cached=useRef(readCache(draftKey)).current;
@@ -60,6 +60,7 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
       const intent=JSON.stringify([store.id,item.id,kind,quantity,mode,date,notes,price,cost,fee]);
       const retry=submission.current?.signature===intent&&submission.current.quantity!=null?submission.current:null;
       const count=retry?.quantity??movementQuantity(kind,quantity,mode,item.quantity);
+      if(kind==="sale"&&item.unit_cost==null)throw new Error("Informe o custo do estilo em Editar custo para registrar a venda. Use 0 somente se não houver custo de produção.");
       const values=kind==="sale"?salePreview(count,price,cost,fee):null;
       if(!date||date>localToday())throw new Error("Informe uma data até hoje.");
       lock.current=true;setBusy(true);
@@ -110,15 +111,16 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
         <label className="field">Data<input type="date" value={date} max={localToday()} onChange={e=>setDate(e.target.value)} required/></label>
         {kind==="sale"&&<>
           <label className="field">Preço vendido por unidade (R$)<input inputMode="decimal" value={price} onChange={e=>setPrice(e.target.value)} required/></label>
-          <label className="field">Valor da loja por chaveiro (R$)<input inputMode="decimal" value={fee} onChange={e=>setFee(e.target.value)} required/><small>Use 0 quando a loja não recebe parte da venda.</small></label>
+          <label className="field">Valor da loja por chaveiro (R$)<input inputMode="decimal" value={fee} onChange={e=>setFee(e.target.value)} placeholder="0,00"/><small>Use 0 quando a loja não recebe parte da venda.</small></label>
         </>}
         <label className="field wide">Observações<input value={notes} onChange={e=>setNotes(e.target.value)} maxLength={500} placeholder="Ex.: Acerto com a loja em 31/10"/></label>
       </div></fieldset>
       {kind==="sale"&&<p className="store-activity-hint">{item?.unit_cost==null?"Informe o custo unitário em Editar loja para calcular o lucro e registrar a venda.":`Custo unitário do cadastro: ${money.format(item.unit_cost)}`}</p>}
+      {kind==="sale"&&item?.unit_cost==null&&onEditStore&&<button type="button" className="outline" onClick={()=>onEditStore(store)} disabled={busy}>Editar custo</button>}
       {delta!==null&&item&&<p className="store-stock-preview">Estoque: <b>{item.quantity}</b> → <b>{kind==="restock"?item.quantity+delta:item.quantity-delta}</b> · {kind==="restock"?`Reposição de ${delta} peça(s)`:`Saída de ${delta} peça(s)`}</p>}
       {preview&&<p className="store-stock-preview">Venda: <b>{money.format(preview.revenue)}</b> · Valor da loja: <b>{money.format(preview.commission)}</b> · Seu valor: <b>{money.format(preview.revenue-preview.commission)}</b> · Lucro: <b>{money.format(preview.profit)}</b></p>}
       {formError&&<div className="notice error" role="alert">{formError}</div>}
-      <div className="form-actions"><button className="primary" disabled={busy||loading||Boolean(error)||!item||delta===null||(kind==="sale"&&!preview)}><Plus/>{busy?"Salvando...":"Registrar"}</button></div>
+      <div className="form-actions"><button className="primary" disabled={busy||loading||Boolean(error)||!item}><Plus/>{busy?"Salvando...":"Registrar"}</button></div>
       </form>}
       <div className="store-history-heading"><h3>Histórico da loja</h3>{onManage&&<button className="outline" onClick={onManage}>Registrar movimentação</button>}</div>
       {!movements.length?<p className="store-activity-hint">Nenhuma movimentação registrada.</p>:<div className="consignment-table-scroll"><table className="store-history-table"><thead><tr><th>Data</th><th>Movimentação</th><th>Estilo</th><th>Qtd.</th><th>Estoque</th><th>Venda / lucro</th>{onClose&&<th>Ação</th>}</tr></thead><tbody>{movements.map(m=><tr key={m.id}><td>{dateBR(m.occurred_on)}</td><td>{kindLabels[m.kind]}{reversed.has(m.id)&&<small>Estornado</small>}{m.notes&&<small>{m.notes}</small>}</td><td>{m.style}</td><td>{m.stock_delta>0?"+":""}{m.stock_delta}</td><td>{m.stock_before} → {m.stock_after}</td><td>{m.revenue!==0?<>{money.format(m.revenue)}<small>Loja {money.format(m.commission)} · Seu valor {money.format(m.revenue-m.commission)}</small><small>Lucro {money.format(m.profit)}</small></>:"—"}</td>{onClose&&<td>{m.kind!=="opening"&&m.kind!=="reversal"&&!reversed.has(m.id)&&<button className="icon-button" aria-label="Estornar movimentação" title="Estornar" onClick={()=>reverse(m)} disabled={busy||loading||Boolean(error)}><RotateCcw/></button>}</td>}</tr>)}</tbody></table></div>}

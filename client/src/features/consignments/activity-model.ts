@@ -38,7 +38,7 @@ export function financialSummary(movements:StockMovement[]) {
 export function salePreview(quantity:number,price:string,cost:string,fee:string) {
   const unitPrice=amount(price,"o preço",false),unitCost=amount(cost,"o custo");
   const revenueCents=Math.round(unitPrice*100)*quantity;
-  const feeValue=amount(fee,"o valor da loja");
+  const feeValue=amount(fee.trim()||"0","o valor da loja");
   const commissionCents=Math.round(feeValue*100)*quantity;
   if(commissionCents>revenueCents)throw new Error("O valor da loja não pode superar o valor vendido.");
   return {unitPrice,unitCost,commission:commissionCents/100,revenue:revenueCents/100,profit:(revenueCents-Math.round(unitCost*100)*quantity-commissionCents)/100};
