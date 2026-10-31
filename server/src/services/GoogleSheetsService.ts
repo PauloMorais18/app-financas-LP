@@ -8,7 +8,7 @@ const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"../../..");
 config({path:resolve(projectRoot,".env")});
 config({path:resolve(projectRoot,"server/.env")});
 
-export const REQUIRED_SHEETS=["Usuarios","Movimentacoes","Listas","Instrucoes","Empresas","Pedidos","Cores","Grupos","MembrosGrupos"] as const;
+export const REQUIRED_SHEETS=["Usuarios","Movimentacoes","Listas","Instrucoes","FontesRenda","Empresas","Pedidos","Cores","Grupos","MembrosGrupos"] as const;
 export type RequiredSheet=(typeof REQUIRED_SHEETS)[number];
 export type SheetRecord=Record<string,unknown>;
 
@@ -52,19 +52,21 @@ export class GoogleSheetsService{
       const available=new Set((response.data.sheets||[]).map(sheet=>sheet.properties?.title));
       const originalMissing=["Usuarios","Movimentacoes","Listas","Instrucoes"].filter(sheet=>!available.has(sheet));
       if(originalMissing.length)throw new GoogleSheetsError(`Abas obrigatórias ausentes: ${originalMissing.join(", ")}.`,422);
+      if(!available.has("FontesRenda")){await this.sheets.spreadsheets.batchUpdate({spreadsheetId:this.spreadsheetId,requestBody:{requests:[{addSheet:{properties:{title:"FontesRenda"}}}]}});available.add("FontesRenda")}
       if(!available.has("Empresas")){await this.sheets.spreadsheets.batchUpdate({spreadsheetId:this.spreadsheetId,requestBody:{requests:[{addSheet:{properties:{title:"Empresas"}}}]}});available.add("Empresas")}
       if(!available.has("Pedidos")){await this.sheets.spreadsheets.batchUpdate({spreadsheetId:this.spreadsheetId,requestBody:{requests:[{addSheet:{properties:{title:"Pedidos"}}}]}});available.add("Pedidos")}
       if(!available.has("Cores")){await this.sheets.spreadsheets.batchUpdate({spreadsheetId:this.spreadsheetId,requestBody:{requests:[{addSheet:{properties:{title:"Cores"}}}]}});available.add("Cores")}
       if(!available.has("Grupos")){await this.sheets.spreadsheets.batchUpdate({spreadsheetId:this.spreadsheetId,requestBody:{requests:[{addSheet:{properties:{title:"Grupos"}}}]}});available.add("Grupos")}
       if(!available.has("MembrosGrupos")){await this.sheets.spreadsheets.batchUpdate({spreadsheetId:this.spreadsheetId,requestBody:{requests:[{addSheet:{properties:{title:"MembrosGrupos"}}}]}});available.add("MembrosGrupos")}
+      await this.ensureHeaders("FontesRenda",["id","usuario_id","nome","descricao","ativo","criado_em","atualizado_em"]);
       await this.ensureHeaders("Empresas",["id","usuario_id","nome","ativo","criado_em","atualizado_em"]);
-      await this.ensureHeaders("Pedidos",["id","usuario_id","titulo","cliente","prazo","valor","status","observacao","criado_em","atualizado_em"]);
+      await this.ensureHeaders("Pedidos",["id","usuario_id","fonte_renda_id","titulo","cliente","prazo","valor","status","observacao","criado_em","atualizado_em"]);
       await this.ensureHeaders("Cores",["id","usuario_id","nome","criado_em","atualizado_em"]);
       await this.ensureHeaders("Pedidos",["cor_id"]);
-      await this.ensureHeaders("Movimentacoes",["empresa_id"]);
+      await this.ensureHeaders("Movimentacoes",["fonte_renda_id","empresa_id"]);
       await this.ensureHeaders("Grupos",["id","nome","codigo","proprietario_id","padrao","criado_em"]);
       await this.ensureHeaders("MembrosGrupos",["id","grupo_id","usuario_id","criado_em"]);
-      for(const sheet of ["Movimentacoes","Empresas","Pedidos","Cores"] as const) await this.ensureHeaders(sheet,["grupo_id"]);
+      for(const sheet of ["Movimentacoes","FontesRenda","Empresas","Pedidos","Cores"] as const) await this.ensureHeaders(sheet,["grupo_id"]);
       this.connected=true;return{connected:true,sheets:[...available].filter(Boolean)};
     }catch(error){this.connected=false;throw this.normalizeError(error)}
   }
