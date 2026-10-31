@@ -31,7 +31,6 @@ As abas obrigatórias são:
 
 - `Usuarios`
 - `Movimentacoes`
-- `FontesRenda`
 - `Empresas`
 - `Pedidos`
 - `Listas`
@@ -80,7 +79,6 @@ Todas as rotas existentes continuam sob `/api`, incluindo:
 
 - `/api/health`
 - `/api/users`
-- `/api/income-sources`
 - `/api/companies`
 - `/api/orders`
 - `/api/transactions`
@@ -89,3 +87,7 @@ Todas as rotas existentes continuam sob `/api`, incluindo:
 - `/api/sheets/status`
 - `/api/sheets/test`
 - `/api/sheets/sync`
+
+## Atualizacao do banco
+
+Execute `migration.sql` no SQL Editor do Supabase antes de publicar esta versao. A migracao remove as fontes de renda e seus vinculos, preservando pedidos e movimentacoes.
