@@ -1,10 +1,12 @@
 import {useEffect,useRef,useState,type FormEvent} from "react";
-import {Building2,Package,Pencil,Plus,Trash2,X} from "lucide-react";
+import {Building2,Package,Pencil,Plus,Trash2,X,Search,BarChart3} from "lucide-react";
 import {money} from "../../utils/format";
 import {deleteConsignment,listConsignments,saveConsignment} from "./service";
 import {newItem,parseItems,totals,type Consignment,type DraftItem} from "./model";
 import "./consignments.css";
 import StoreActivity from "./StoreActivity";
+import ConsignmentSummary from "./ConsignmentSummary";
+import {normalizeCompanySearch} from "./summary-model";
 import {stockForecast} from "./activity-model";
 
 type Props={groupId:string;notify:(message:string,error?:boolean)=>void};
@@ -13,6 +15,7 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
   const [editor,setEditor]=useState<{store:Consignment|null}|null>(null),[name,setName]=useState(""),[items,setItems]=useState<DraftItem[]>([]);
   const [saving,setSaving]=useState(false),[deleting,setDeleting]=useState(""),[formError,setFormError]=useState("");
   const [expanded,setExpanded]=useState<string[]>([]),[activityId,setActivityId]=useState("");
+  const [search,setSearch]=useState(""),[showSummary,setShowSummary]=useState(false);
   const savingRef=useRef(false);
   useEffect(()=>{
     let active=true;
@@ -67,8 +70,21 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
   const summary=totals(stores.flatMap(store=>store.consignment_items));
   let draftTotal:number|null=null;
   try{draftTotal=totals(parseItems(items)).cents}catch{}
+  const visibleStores=stores.filter(store=>normalizeCompanySearch(store.store_name).includes(normalizeCompanySearch(search)));
+  const renderStore=(store:Consignment)=>{
+
+          const total=totals(store.consignment_items);
+          return <article className="card consignment-card" key={store.id} data-store-id={store.id} style={{order:visibleStores.indexOf(store)}}>
+            <div className="consignment-card-heading"><span className="consignment-store-icon"><Building2/></span><h2>{store.store_name}</h2><div className="consignment-actions"><button className="icon-button" aria-label={`Editar ${store.store_name}`} title="Editar loja" onClick={()=>open(store)} disabled={Boolean(deleting)}><Pencil/></button><button className="icon-button danger" aria-label={`Excluir ${store.store_name}`} title="Excluir loja" onClick={()=>remove(store)} disabled={Boolean(deleting)}><Trash2/></button></div></div>
+            <div className="consignment-table-scroll"><table><thead><tr><th>Estilo</th><th>Valor un.</th><th>Qtd.</th><th>Total</th></tr></thead><tbody>{store.consignment_items.map((item,index)=><tr key={item.id||index}><td>{item.style}</td><td>{money.format(item.unit_price)}</td><td>{item.quantity}</td><td>{money.format(Math.round(item.unit_price*100)*item.quantity/100)}</td></tr>)}</tbody></table></div>
+            <footer><span><Package/>{total.quantity} chaveiro(s)</span><strong>{money.format(total.cents/100)}</strong></footer>
+            <div className="store-card-controls"><button className="outline" aria-expanded={expanded.includes(store.id)} onClick={()=>setExpanded(current=>current.includes(store.id)?current.filter(id=>id!==store.id):[...current,store.id])}>{expanded.includes(store.id)?"Recolher histórico":"Expandir histórico"}</button><button className="primary" onClick={()=>setActivityId(store.id)}>Movimentações da loja</button></div>
+            {expanded.includes(store.id)&&<StoreActivity store={store} groupId={groupId} onChanged={()=>setReload(v=>v+1)} notify={notify} onManage={()=>setActivityId(store.id)}/>}
+          </article>;
+
+  };
   return <div className="consignments-page">
-    <div className="page-heading"><div><h1>Consignados</h1><p>Chaveiros e estilos em cada loja parceira.</p></div><button className="primary" onClick={()=>open(null)} disabled={!groupId||loading||Boolean(error)}><Plus/>Nova loja parceira</button></div>
+    <div className="page-heading"><div><h1>Consignados</h1><p>Chaveiros e estilos em cada loja parceira.</p></div><div className="consignment-heading-actions"><button className="outline" onClick={()=>setShowSummary(true)} disabled={!groupId||loading||Boolean(error)}><BarChart3/>Ver resumo</button><button className="primary" onClick={()=>open(null)} disabled={!groupId||loading||Boolean(error)}><Plus/>Nova loja parceira</button></div></div>
     {!groupId?<div className="card consignment-empty">Selecione um grupo para gerenciar os consignados.</div>:<>
       {error?<div className="notice error" role="alert">{error} <button className="outline" onClick={()=>setReload(value=>value+1)}>Tentar novamente</button></div>:loading?<div className="card consignment-empty" role="status">Carregando lojas parceiras...</div>:<>
         <section className="consignment-summary" aria-label="Resumo dos consignados">
@@ -76,18 +92,11 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
           <div className="card"><small>Chaveiros nas lojas</small><strong>{summary.quantity}</strong></div>
           <div className="card"><small>Valor total em consignação</small><strong>{money.format(summary.cents/100)}</strong></div>
         </section>
-        {stores.length?<section className="consignment-grid">{stores.map(store=>{
-          const total=totals(store.consignment_items);
-          return <article className="card consignment-card" key={store.id}>
-            <div className="consignment-card-heading"><span className="consignment-store-icon"><Building2/></span><h2>{store.store_name}</h2><div className="consignment-actions"><button className="icon-button" aria-label={`Editar ${store.store_name}`} title="Editar loja" onClick={()=>open(store)} disabled={Boolean(deleting)}><Pencil/></button><button className="icon-button danger" aria-label={`Excluir ${store.store_name}`} title="Excluir loja" onClick={()=>remove(store)} disabled={Boolean(deleting)}><Trash2/></button></div></div>
-            <div className="consignment-table-scroll"><table><thead><tr><th>Estilo</th><th>Valor un.</th><th>Qtd.</th><th>Total</th></tr></thead><tbody>{store.consignment_items.map((item,index)=><tr key={item.id||index}><td>{item.style}</td><td>{money.format(item.unit_price)}</td><td>{item.quantity}</td><td>{money.format(Math.round(item.unit_price*100)*item.quantity/100)}</td></tr>)}</tbody></table></div>
-            <footer><span><Package/>{total.quantity} chaveiro(s)</span><strong>{money.format(total.cents/100)}</strong></footer>
-            <div className="store-card-controls"><button className="outline" aria-expanded={expanded.includes(store.id)} onClick={()=>setExpanded(current=>current.includes(store.id)?current.filter(id=>id!==store.id):[...current,store.id])}>{expanded.includes(store.id)?"Recolher histórico":"Expandir histórico"}</button><button className="primary" onClick={()=>setActivityId(store.id)}>Movimentações da loja</button></div>
-            {expanded.includes(store.id)&&<StoreActivity store={store} groupId={groupId} onChanged={()=>setReload(v=>v+1)} notify={notify} onManage={()=>setActivityId(store.id)}/>}
-          </article>;
-        })}</section>:<div className="card consignment-empty"><Building2/><h2>Cadastre sua primeira loja parceira</h2><p>Adicione os estilos, os valores e a quantidade de chaveiros deixados em cada loja.</p><button className="primary" onClick={()=>open(null)}><Plus/>Cadastrar loja</button></div>}
+        <div className="consignment-search"><label htmlFor="consignment-company-search"><Search/>Pesquisar empresa</label><div><input id="consignment-company-search" type="search" placeholder="Digite o nome da loja parceira" value={search} onChange={event=>setSearch(event.target.value)}/>{search&&<button className="icon-button" aria-label="Limpar pesquisa" onClick={()=>setSearch("")}><X/></button>}</div><small role="status">{visibleStores.length} de {stores.length} empresa(s)</small></div>
+        {stores.length?<>{visibleStores.length?<section className="consignment-grid consignment-columns">{[0,1].map(column=><div className="consignment-column" key={column}>{visibleStores.filter((_,index)=>index%2===column).map(renderStore)}</div>)}</section>:<div className="card consignment-empty"><Search/><h2>Nenhuma empresa encontrada</h2><p>Tente outro nome ou limpe a pesquisa.</p><button className="outline" onClick={()=>setSearch("")}>Limpar pesquisa</button></div>}</>:<div className="card consignment-empty"><Building2/><h2>Cadastre sua primeira loja parceira</h2><p>Adicione os estilos, os valores e a quantidade de chaveiros deixados em cada loja.</p><button className="primary" onClick={()=>open(null)}><Plus/>Cadastrar loja</button></div>}
       </>}
     </>}
+    {showSummary&&<ConsignmentSummary groupId={groupId} stores={stores} onClose={()=>setShowSummary(false)}/>}
     {activityId&&stores.find(store=>store.id===activityId)&&<StoreActivity store={stores.find(store=>store.id===activityId)!} groupId={groupId} onChanged={()=>setReload(v=>v+1)} notify={notify} onClose={()=>setActivityId("")}/>}
     {editor&&<div className="modal-backdrop consignment-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget&&!savingRef.current)setEditor(null)}}>
       <section className="card consignment-modal" role="dialog" aria-modal="true" aria-labelledby="consignment-editor-title" onKeyDown={event=>{

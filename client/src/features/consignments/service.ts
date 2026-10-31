@@ -34,10 +34,12 @@ export async function getConsignment(groupId:string,id:string):Promise<Consignme
   check(error);if(!data)throw new Error("Loja não encontrada.");
   return {...data,consignment_items:data.consignment_items.map(item=>({...item,unit_price:Number(item.unit_price),unit_cost:item.unit_cost==null?null:Number(item.unit_cost),store_value:Number(item.store_value||0)}))};
 }
-export async function listStockMovements(groupId:string,id:string):Promise<StockMovement[]> {
+export async function listStockMovements(groupId:string,id?:string):Promise<StockMovement[]> {
   const rows:StockMovement[]=[];
   for(;;){
-    const {data,error}=await supabase.from("consignment_movements").select("*,consignments!inner(group_id)").eq("consignment_id",id).eq("consignments.group_id",groupId).order("occurred_on",{ascending:false}).order("created_at",{ascending:false}).order("id").range(rows.length,rows.length+199);
+    let query=supabase.from("consignment_movements").select("*,consignments!inner(group_id)").eq("consignments.group_id",groupId);
+    if(id)query=query.eq("consignment_id",id);
+    const {data,error}=await query.order("occurred_on",{ascending:false}).order("created_at",{ascending:false}).order("id").range(rows.length,rows.length+199);
     check(error);if(!data?.length)return rows;
     rows.push(...data.map(row=>({...row,unit_price:Number(row.unit_price),unit_cost:Number(row.unit_cost),commission:Number(row.commission),revenue:Number(row.revenue),profit:Number(row.profit)})) as StockMovement[]);
   }

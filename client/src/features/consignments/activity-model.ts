@@ -1,5 +1,5 @@
 export type MovementKind="sale"|"restock"|"withdrawal";
-export type StockMovement={id:string;item_id:string;kind:"opening"|MovementKind|"reversal";style:string;quantity:number;stock_delta:number;stock_before:number;stock_after:number;unit_price:number;unit_cost:number;commission:number;revenue:number;profit:number;occurred_on:string;notes:string;created_at:string;reverses_id:string|null};
+export type StockMovement={id:string;consignment_id:string;item_id:string;kind:"opening"|MovementKind|"reversal";style:string;quantity:number;stock_delta:number;stock_before:number;stock_after:number;unit_price:number;unit_cost:number;commission:number;revenue:number;profit:number;occurred_on:string;notes:string;created_at:string;reverses_id:string|null};
 export const kindLabels:Record<StockMovement["kind"],string>={opening:"Estoque inicial",sale:"Venda",restock:"Reposição",withdrawal:"Retirada sem venda",reversal:"Estorno"};
 export const localToday=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
 export function amount(raw:string,label:string,allowZero=true) {

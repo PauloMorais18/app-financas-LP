@@ -73,7 +73,7 @@ const ts=require("typescript");
  await movement("withdrawal",3,41,crypto.randomUUID());assert.equal(await stock(),38);
  // Typescript calculations agree with the database history.
  const module={exports:{}};
- const code=ts.transpileModule(fs.readFileSync("client/src/features/consignments/activity-model.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
+ const code=ts.transpileModule(fs.readFileSync("client/src/features/consignments/activity-model.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
  new Function("module","exports",code)(module,module.exports);
  const {financialSummary,movementQuantity,salePreview}=module.exports;
  const mapped=(await history()).rows.map(row=>({...row,unit_price:Number(row.unit_price),unit_cost:Number(row.unit_cost),commission:Number(row.commission),revenue:Number(row.revenue),profit:Number(row.profit),occurred_on:String(row.occurred_on).slice(0,10)}));

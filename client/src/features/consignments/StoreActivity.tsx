@@ -14,10 +14,11 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
   const closeRef=useRef(onClose);closeRef.current=onClose;
   const [store,setStore]=useState(initial),[movements,setMovements]=useState<StockMovement[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(""),[version,setVersion]=useState(0);
   const [kind,setKind]=useState<MovementKind>(cached?.kind||"sale"),[itemId,setItemId]=useState(cached?.itemId||first?.id||""),[quantity,setQuantity]=useState(cached?.quantity||""),[mode,setMode]=useState<"add"|"target">(cached?.mode||"add");
-  const [date,setDate]=useState<string>(cached?.date||localToday()),[price,setPrice]=useState<string>(cached?.price??first?.unit_price.toFixed(2).replace(".",",")??""),[cost,setCost]=useState<string>(cached?.cost??(first?.unit_cost==null?"":first.unit_cost.toFixed(2).replace(".",","))),[fee,setFee]=useState<string>(cached?.fee??(first?.store_value||0).toFixed(2).replace(".",",")),[notes,setNotes]=useState<string>(cached?.notes||""),[busy,setBusy]=useState(false),[formError,setFormError]=useState("");
+  const [date,setDate]=useState<string>(cached?.date||localToday()),[price,setPrice]=useState<string>(cached?.price??first?.unit_price.toFixed(2).replace(".",",")??""),[fee,setFee]=useState<string>(cached?.fee??(first?.store_value||0).toFixed(2).replace(".",",")),[notes,setNotes]=useState<string>(cached?.notes||""),[busy,setBusy]=useState(false),[formError,setFormError]=useState("");
   const submission=useRef<{signature:string;key:string;stock?:number;quantity?:number}|null>(readCache(draftKey+":action"));
   const lock=useRef(false),dialog=useRef<HTMLElement>(null);
   const item=store.consignment_items.find(row=>row.id===itemId);
+  const cost=item?.unit_cost==null?"":item.unit_cost.toFixed(2).replace(".",",");
   useEffect(()=>{
     let active=true;setLoading(true);setError("");
     Promise.all([getConsignment(groupId,initial.id),listStockMovements(groupId,initial.id)]).then(([fresh,history])=>{if(active){
@@ -36,7 +37,6 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
   const selectItem=(id:string)=>{
     const next=store.consignment_items.find(row=>row.id===id);
     setItemId(id);setQuantity("");setPrice(next?.unit_price.toFixed(2).replace(".",",")||"");
-    setCost(next?.unit_cost==null?"":next.unit_cost.toFixed(2).replace(".",","));
     setFee((next?.store_value||0).toFixed(2).replace(".",","));
   };
   useEffect(()=>{
@@ -110,11 +110,11 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
         <label className="field">Data<input type="date" value={date} max={localToday()} onChange={e=>setDate(e.target.value)} required/></label>
         {kind==="sale"&&<>
           <label className="field">Preço vendido por unidade (R$)<input inputMode="decimal" value={price} onChange={e=>setPrice(e.target.value)} required/></label>
-          <label className="field">Custo de produção por unidade (R$)<input inputMode="decimal" placeholder="Informe o custo real" value={cost} onChange={e=>setCost(e.target.value)} required/></label>
           <label className="field">Valor da loja por chaveiro (R$)<input inputMode="decimal" value={fee} onChange={e=>setFee(e.target.value)} required/><small>Use 0 quando a loja não recebe parte da venda.</small></label>
         </>}
         <label className="field wide">Observações<input value={notes} onChange={e=>setNotes(e.target.value)} maxLength={500} placeholder="Ex.: Acerto com a loja em 31/10"/></label>
       </div></fieldset>
+      {kind==="sale"&&<p className="store-activity-hint">{item?.unit_cost==null?"Informe o custo unitário em Editar loja para calcular o lucro e registrar a venda.":`Custo unitário do cadastro: ${money.format(item.unit_cost)}`}</p>}
       {delta!==null&&item&&<p className="store-stock-preview">Estoque: <b>{item.quantity}</b> → <b>{kind==="restock"?item.quantity+delta:item.quantity-delta}</b> · {kind==="restock"?`Reposição de ${delta} peça(s)`:`Saída de ${delta} peça(s)`}</p>}
       {preview&&<p className="store-stock-preview">Venda: <b>{money.format(preview.revenue)}</b> · Valor da loja: <b>{money.format(preview.commission)}</b> · Seu valor: <b>{money.format(preview.revenue-preview.commission)}</b> · Lucro: <b>{money.format(preview.profit)}</b></p>}
       {formError&&<div className="notice error" role="alert">{formError}</div>}
