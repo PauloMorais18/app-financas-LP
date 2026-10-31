@@ -371,6 +371,8 @@ function Layout() {
             <ClipboardList />
             Pedidos
           </NavLink>
+          <NavLink to="/consignados"><Package />Consignados</NavLink>
+          <NavLink to="/ordem-producao"><FileText />Ordem de produção</NavLink>
           <button className="nav-parent" aria-expanded={movementsOpen} aria-controls="movements-menu" onClick={(event) => { event.stopPropagation(); setMovementsOpen((value) => !value); }}>
             <WalletCards /> Movimentações <span>{movementsOpen ? "−" : "+"}</span>
           </button>
@@ -378,8 +380,6 @@ function Layout() {
             <NavLink to="/ganhos"><ArrowUpRight />Ganhos</NavLink>
             <NavLink to="/despesas"><ArrowDownLeft />Despesas</NavLink>
           </div>}
-          <NavLink to="/ordem-producao"><FileText />Ordem de produção</NavLink>
-          <NavLink to="/consignados"><Package />Consignados</NavLink>
           {activeGroup?.workshopContracted && activeGroup.workshopEnabled && <NavLink to="/relatorios"><FileText />RelatÃ³rios</NavLink>}
           <button className="nav-parent" onClick={(event) => { event.stopPropagation(); setRegistrationsOpen((value) => !value); }}>
             <Database /> Cadastros <span>{registrationsOpen ? "−" : "+"}</span>
@@ -514,7 +514,7 @@ function Dashboard() {
     <div className="dashboard-bank">
       <PageHeading
         title="Dashboard"
-        subtitle="Controle ganhos e despesas por grupo."
+        subtitle="Saldo dos ganhos recebidos menos as despesas pagas do grupo."
       >
       </PageHeading>
       {summary.error && <div className="notice error">{summary.error}</div>}
@@ -526,13 +526,13 @@ function Dashboard() {
           icon={<WalletCards />}
         />
         <Kpi
-          label="Ganhos no período"
+          label="Ganhos registrados"
           value={summary.data.income}
           icon={<ArrowUpRight />}
           tone="green"
         />
         <Kpi
-          label="Despesas no período"
+          label="Despesas registradas"
           value={summary.data.expense}
           icon={<ArrowDownLeft />}
           tone="red"

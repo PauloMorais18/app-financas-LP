@@ -443,43 +443,13 @@ app.delete(
     res.status(204).end();
   }),
 );
-const recurringProjection = (items: Transaction[]) => {
-  const nowParts = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: "America/Sao_Paulo",
-      year: "numeric",
-      month: "2-digit",
-    }).formatToParts(new Date()),
-    currentYear = Number(nowParts.find((item) => item.type === "year")?.value),
-    currentMonth = Number(nowParts.find((item) => item.type === "month")?.value) - 1,
-    current = currentYear * 12 + currentMonth;
-  return items.flatMap((t) => {
-    if (!t.recurring) return [t];
-    const [startYear, startMonth, startDay] = t.date.split("-").map(Number),
-      first = startYear * 12 + startMonth - 1,
-      copies: Transaction[] = [];
-    for (let month = first; month <= current; month++) {
-      const year = Math.floor(month / 12),
-        index = month % 12,
-        day = Math.min(
-          startDay,
-          new Date(Date.UTC(year, index + 1, 0)).getUTCDate(),
-        );
-      copies.push({
-        ...t,
-        id: `${t.id}:${year}-${index + 1}`,
-        date: `${year}-${String(index + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
-      });
-    }
-    return copies;
-  });
-};
 const dashboard = async (userId = "", groupId = "") => {
   const source = (await store.list()).filter(
       (item) =>
         (!userId || item.userId === userId) &&
         (!groupId || item.groupId === groupId),
     ),
-    all = recurringProjection(source),
+    all = source,
     active = all.filter((t) => t.status !== "cancelled"),
     paid = active.filter((t) => t.status === "paid"),
     income = paid.filter((t) => t.type === "income"),
@@ -523,7 +493,7 @@ app.get(
       String(q.query.userId || ""),
       String(q.query.groupId || ""),
     );
-    const valid = all.filter((t) => t.status !== "cancelled");
+    const valid = all.filter((t) => t.status === "paid");
     const group = (key: (t: Transaction) => string) =>
       Object.values(
         valid.reduce<

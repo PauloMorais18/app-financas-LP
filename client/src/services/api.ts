@@ -1,4 +1,5 @@
 import { supabase, supabaseConfigured } from "./supabase";
+import { readAllPages } from "./pagination";
 
 type Response<T> = { data: T };
 class ApiError extends Error { response: { data: { message: string }; status: number }; constructor(message: string, status = 400) { super(message); this.response = { data: { message }, status }; } }
@@ -53,10 +54,12 @@ async function listTransactions(params: URLSearchParams) {
   if(params.get("userId"))q=q.eq("user_id",params.get("userId")); if(params.get("groupId"))q=q.eq("group_id",params.get("groupId")); 
   if(params.get("type"))q=q.eq("type",params.get("type")); if(params.get("status"))q=q.eq("status",params.get("status"));
   if(params.get("search"))q=q.ilike("description",`%${params.get("search")}%`); if(params.get("startDate"))q=q.gte("date",params.get("startDate")); if(params.get("endDate"))q=q.lte("date",params.get("endDate"));
-  const {data,error}=await q.order("date",{ascending:false}); fail(error); return (data||[]).filter((row:any)=>(!row.order_id || row.orders?.paid || row.orders?.status==="delivered")).map(transaction);
+  const data = await readAllPages<any>(async (offset, limit) =>
+    await q.order("date", {ascending:false}).order("id", {ascending:true}).range(offset, offset + limit - 1)
+  );
+  return data.filter((row:any)=>(!row.order_id || row.orders?.paid || row.orders?.status==="delivered")).map(transaction);
 }
-const recurringProjection=(items:any[])=>{const now=new Date(),current=now.getFullYear()*12+now.getMonth();return items.flatMap(t=>{if(!t.recurring)return[t];const[y,m,d]=t.date.split("-").map(Number),first=y*12+m-1,copies=[];for(let month=first;month<=current;month++){const year=Math.floor(month/12),index=month%12,day=Math.min(d,new Date(year,index+1,0).getDate());copies.push({...t,id:`${t.id}:${year}-${index+1}`,date:`${year}-${String(index+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`})}return copies})};
-const dashboardData=async(params:URLSearchParams)=>{const all=recurringProjection(await listTransactions(params)),valid=all.filter((t:any)=>t.status!=="cancelled"),paid=valid.filter((t:any)=>t.status==="paid"),income=paid.filter((t:any)=>t.type==="income"),expense=paid.filter((t:any)=>t.type==="expense");return{all,valid:paid,summary:{balance:income.reduce((s:number,t:any)=>s+t.value,0)-expense.reduce((s:number,t:any)=>s+t.value,0),income:income.reduce((s:number,t:any)=>s+t.value,0),expense:expense.reduce((s:number,t:any)=>s+t.value,0),pending:valid.filter((t:any)=>t.status==="pending").reduce((s:number,t:any)=>s+t.value,0),count:all.length}}};
+const dashboardData=async(params:URLSearchParams)=>{const all=await listTransactions(params),valid=all.filter((t:any)=>t.status!=="cancelled"),paid=valid.filter((t:any)=>t.status==="paid"),income=paid.filter((t:any)=>t.type==="income"),expense=paid.filter((t:any)=>t.type==="expense");return{all,valid:paid,summary:{balance:income.reduce((s:number,t:any)=>s+t.value,0)-expense.reduce((s:number,t:any)=>s+t.value,0),income:income.reduce((s:number,t:any)=>s+t.value,0),expense:expense.reduce((s:number,t:any)=>s+t.value,0),pending:valid.filter((t:any)=>t.status==="pending").reduce((s:number,t:any)=>s+t.value,0),count:all.length}}};
 
 async function get<T>(raw:string):Promise<Response<T>>{const u=url(raw),p=u.pathname,params=u.searchParams;
   if(p==="/auth/session"){const user=await currentUser();const {data,error}=await supabase.from("profiles").select("*").eq("id",user.id).single();fail(error);return{data:{user:{id:user.id,name:data.name,email:user.email}} as T}}
@@ -70,7 +73,7 @@ async function get<T>(raw:string):Promise<Response<T>>{const u=url(raw),p=u.path
   if(p.startsWith("/transactions/")){await currentUser();const{data,error}=await supabase.from("transactions").select("*").eq("id",p.split("/").pop()).single();fail(error);return{data:transaction(data) as T}}
   if(p==="/transactions"){let items=await listTransactions(params);const total=items.length,limit=Number(params.get("limit")||10),page=Number(params.get("page")||1),summary=items.reduce((s:any,t:any)=>{if(t.status==="paid"){s.totalValue+=t.type==="income"?t.value:-t.value;t.type==="income"?s.totalIncome+=t.value:s.totalExpense+=t.value}return s},{totalValue:0,totalIncome:0,totalExpense:0});return{data:{data:items.slice((page-1)*limit,page*limit),pagination:{page,limit,total,totalPages:Math.ceil(total/limit)},summary} as T}}
   if(p==="/dashboard/summary"){const d=await dashboardData(params);return{data:d.summary as T}}
-  if(p==="/dashboard/charts"){const{valid}=await dashboardData(params),group=(key:(t:any)=>string)=>Object.values(valid.reduce((a:any,t:any)=>{const n=key(t);a[n]??={name:n,income:0,expense:0};a[n][t.type]+=t.value;return a},{})),monthly=group((t:any)=>t.date.slice(0,7));let balance=0;const evolution=[...valid].sort((a:any,b:any)=>a.date.localeCompare(b.date)).map((t:any)=>({date:t.date,balance:balance+=t.type==="income"?t.value:-t.value}));return{data:{monthly,evolution,categories:group((t:any)=>t.category),payments:group((t:any)=>t.paymentMethod)} as T}}
+  if(p==="/dashboard/charts"){const{valid}=await dashboardData(params),group=(key:(t:any)=>string)=>Object.values(valid.reduce((a:any,t:any)=>{const n=key(t);a[n]??={name:n,income:0,expense:0};a[n][t.type]+=t.value;return a},{})),monthly=group((t:any)=>t.date.slice(0,7)).sort((a:any,b:any)=>a.name.localeCompare(b.name));let balance=0;const evolution=[...valid].sort((a:any,b:any)=>a.date.localeCompare(b.date)).map((t:any)=>({date:t.date,balance:balance+=t.type==="income"?t.value:-t.value}));return{data:{monthly,evolution,categories:group((t:any)=>t.category),payments:group((t:any)=>t.paymentMethod)} as T}}
   if(p==="/settings/excel")return{data:{workbookId:"Supabase PostgreSQL",worksheet:"Tabelas protegidas por RLS",connected:supabaseConfigured,configured:supabaseConfigured,message:supabaseConfigured?"Supabase configurado.":"Configure as variáveis do Supabase."} as T};
   throw new ApiError("Rota não encontrada.",404);
 }
