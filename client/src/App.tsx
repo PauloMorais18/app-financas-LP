@@ -83,6 +83,7 @@ import type {
 import { dateBR, money } from "./utils/format";
 import "./catalog.css";
 import ConsignmentsPage from "./features/consignments/ConsignmentsPage";
+import ProductionBoard from "./features/production/ProductionBoard";
 
 const APP_BUILD_ID = "group-sharing-debug-v1";
 
@@ -335,7 +336,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
           />
           <Route path="pedidos" element={<OrderQueue notify={notify} />} />
           <Route path="consignados" element={<ConsignmentsPage key={activeGroupId} groupId={activeGroupId} notify={notify} />} />
-          <Route path="ordem-producao" element={<><PageHeading title="Ordem de produção" subtitle="Organização da produção." /><article className="card"><Empty text="Funcionalidade em preparação." /></article></>} />
+          <Route path="ordem-producao" element={<ProductionPage notify={notify} />} />
           <Route path="pedidos/novo" element={<OrderForm notify={notify} />} />
           <Route path="pedidos/:id" element={<OrderForm notify={notify} />} />
           <Route path="relatorios" element={<WorkshopReports />} />
@@ -506,6 +507,14 @@ function useLoad<T>(url: string, initial: T) {
       .finally(() => setLoading(false));
   }, [url]);
   useEffect(reload, [reload]);
+  useEffect(() => {
+    if (!url.startsWith("/orders?")) return;
+    const refresh = () => { if (document.visibilityState === "visible") reload(); };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("orders-updated", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener("orders-updated", refresh); };
+  }, [url, reload]);
   return { data, loading, error, reload };
 }
 
@@ -1136,6 +1145,12 @@ const savedOrderStatusFilter = (groupId: string): OrderQueueFilter => {
   const saved = localStorage.getItem(orderStatusFilterKey(groupId));
   return orderQueueFilters.some((filter) => filter.value === saved) ? saved as OrderQueueFilter : "all";
 };
+
+function ProductionPage({ notify }: { notify: (message: string, error?: boolean) => void }) {
+  const { activeGroupId } = useSession();
+  const orders = useLoad<Order[]>(`/orders?${query({ groupId: activeGroupId })}`, []);
+  return <><PageHeading title="Ordem de produção" subtitle="Gere ordens a partir dos pedidos e arraste os cards entre as etapas." /><ProductionBoard key={activeGroupId} groupId={activeGroupId} orders={orders.data} loading={orders.loading} error={orders.error} reload={orders.reload} notify={notify} /></>;
+}
 
 function OrderQueue({ notify }: { notify: (message: string, error?: boolean) => void }) {
   const { activeUserId, activeGroupId } = useSession(),

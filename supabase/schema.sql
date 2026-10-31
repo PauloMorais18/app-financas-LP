@@ -574,3 +574,9 @@ alter table public.transactions add constraint transactions_source_id_fkey
 delete from public.transactions t using public.orders o
 where t.order_id=o.id and not o.paid and o.status <> 'delivered';
 commit;
+
+-- Etapa vinculada ao próprio pedido: a conclusão usa orders.status = 'delivered'.
+begin;
+alter table public.orders add column if not exists production_stage text
+  check (production_stage in ('modeling','printing','painting','delivery'));
+commit;
