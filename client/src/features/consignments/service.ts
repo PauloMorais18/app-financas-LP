@@ -41,11 +41,11 @@ export async function listStockMovements(groupId:string,id?:string):Promise<Stoc
     if(id)query=query.eq("consignment_id",id);
     const {data,error}=await query.order("occurred_on",{ascending:false}).order("created_at",{ascending:false}).order("id").range(rows.length,rows.length+199);
     check(error);if(!data?.length)return rows;
-    rows.push(...data.map(row=>({...row,unit_price:Number(row.unit_price),unit_cost:Number(row.unit_cost),commission:Number(row.commission),revenue:Number(row.revenue),profit:Number(row.profit)})) as StockMovement[]);
+    rows.push(...data.map(row=>({...row,unit_price:Number(row.unit_price),unit_cost:row.unit_cost==null?null:Number(row.unit_cost),commission:Number(row.commission),revenue:Number(row.revenue),profit:row.profit==null?null:Number(row.profit)})) as StockMovement[]);
   }
 }
 export async function recordStockMovement(groupId:string,storeId:string,itemId:string,kind:MovementKind,quantity:number,expectedStock:number,date:string,notes:string,values:ReturnType<typeof salePreview>|null,eventKey:string) {
-  const {error}=await supabase.rpc("record_consignment_movement",{target_group:groupId,target_store:storeId,target_item:itemId,movement_kind:kind,movement_quantity:quantity,expected_stock:expectedStock,movement_date:date,movement_notes:notes.trim(),sale_price:values?.unitPrice||0,production_cost:values?.unitCost||0,store_commission:values?.commission||0,event_key:eventKey});
+  const {error}=await supabase.rpc("record_consignment_movement",{target_group:groupId,target_store:storeId,target_item:itemId,movement_kind:kind,movement_quantity:quantity,expected_stock:expectedStock,movement_date:date,movement_notes:notes.trim(),sale_price:values?.unitPrice||0,production_cost:values?values.unitCost:null,store_commission:values?.commission||0,event_key:eventKey});
   check(error);
 }
 export async function reverseStockMovement(groupId:string,storeId:string,movementId:string) {

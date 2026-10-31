@@ -60,7 +60,6 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
       const intent=JSON.stringify([store.id,item.id,kind,quantity,mode,date,notes,price,cost,fee]);
       const retry=submission.current?.signature===intent&&submission.current.quantity!=null?submission.current:null;
       const count=retry?.quantity??movementQuantity(kind,quantity,mode,item.quantity);
-      if(kind==="sale"&&item.unit_cost==null)throw new Error("Informe o custo do estilo em Editar custo para registrar a venda. Use 0 somente se não houver custo de produção.");
       const values=kind==="sale"?salePreview(count,price,cost,fee):null;
       if(!date||date>localToday())throw new Error("Informe uma data até hoje.");
       lock.current=true;setBusy(true);
@@ -96,7 +95,7 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
       <h3 className="store-section-title">Vendas já registradas</h3>
       <div className="store-activity-summary">
         <div><small>Vendidos</small><strong>{summary.sold}</strong></div><div><small>Repostos</small><strong>{summary.restocked}</strong></div>
-        <div><small>Faturamento</small><strong>{money.format(summary.revenueCents/100)}</strong></div><div><small>Valor da loja</small><strong>{money.format(summary.commissionCents/100)}</strong></div><div><small>Seu valor</small><strong>{money.format((summary.revenueCents-summary.commissionCents)/100)}</strong></div><div><small>Lucro da consignação</small><strong>{money.format(summary.profitCents/100)}</strong></div>
+        <div><small>Faturamento</small><strong>{money.format(summary.revenueCents/100)}</strong></div><div><small>Valor da loja</small><strong>{money.format(summary.commissionCents/100)}</strong></div><div><small>Seu valor</small><strong>{money.format((summary.revenueCents-summary.commissionCents)/100)}</strong></div><div><small>Lucro da consignação</small><strong>{summary.profitCents===null?"Pendente":money.format(summary.profitCents/100)}</strong></div>
       </div>
       <p className="store-activity-hint">Seu valor = vendas − valor da loja. Lucro = seu valor − custo de produção. Estoque inicial e reposições não contam como venda.</p>
       <div className="store-charts">
@@ -115,15 +114,15 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
         </>}
         <label className="field wide">Observações<input value={notes} onChange={e=>setNotes(e.target.value)} maxLength={500} placeholder="Ex.: Acerto com a loja em 31/10"/></label>
       </div></fieldset>
-      {kind==="sale"&&<p className="store-activity-hint">{item?.unit_cost==null?"Informe o custo unitário em Editar loja para calcular o lucro e registrar a venda.":`Custo unitário do cadastro: ${money.format(item.unit_cost)}`}</p>}
+      {kind==="sale"&&<p className="store-activity-hint">{item?.unit_cost==null?"Custo não informado: a venda pode ser registrada e o lucro ficará pendente.":`Custo unitário do cadastro: ${money.format(item.unit_cost)}`}</p>}
       {kind==="sale"&&item?.unit_cost==null&&onEditStore&&<button type="button" className="outline" onClick={()=>onEditStore(store)} disabled={busy}>Editar custo</button>}
       {delta!==null&&item&&<p className="store-stock-preview">Estoque: <b>{item.quantity}</b> → <b>{kind==="restock"?item.quantity+delta:item.quantity-delta}</b> · {kind==="restock"?`Reposição de ${delta} peça(s)`:`Saída de ${delta} peça(s)`}</p>}
-      {preview&&<p className="store-stock-preview">Venda: <b>{money.format(preview.revenue)}</b> · Valor da loja: <b>{money.format(preview.commission)}</b> · Seu valor: <b>{money.format(preview.revenue-preview.commission)}</b> · Lucro: <b>{money.format(preview.profit)}</b></p>}
+      {preview&&<p className="store-stock-preview">Venda: <b>{money.format(preview.revenue)}</b> · Valor da loja: <b>{money.format(preview.commission)}</b> · Seu valor: <b>{money.format(preview.revenue-preview.commission)}</b> · Lucro: <b>{preview.profit===null?"Pendente":money.format(preview.profit)}</b></p>}
       {formError&&<div className="notice error" role="alert">{formError}</div>}
       <div className="form-actions"><button className="primary" disabled={busy||loading||Boolean(error)||!item}><Plus/>{busy?"Salvando...":"Registrar"}</button></div>
       </form>}
       <div className="store-history-heading"><h3>Histórico da loja</h3>{onManage&&<button className="outline" onClick={onManage}>Registrar movimentação</button>}</div>
-      {!movements.length?<p className="store-activity-hint">Nenhuma movimentação registrada.</p>:<div className="consignment-table-scroll"><table className="store-history-table"><thead><tr><th>Data</th><th>Movimentação</th><th>Estilo</th><th>Qtd.</th><th>Estoque</th><th>Venda / lucro</th>{onClose&&<th>Ação</th>}</tr></thead><tbody>{movements.map(m=><tr key={m.id}><td>{dateBR(m.occurred_on)}</td><td>{kindLabels[m.kind]}{reversed.has(m.id)&&<small>Estornado</small>}{m.notes&&<small>{m.notes}</small>}</td><td>{m.style}</td><td>{m.stock_delta>0?"+":""}{m.stock_delta}</td><td>{m.stock_before} → {m.stock_after}</td><td>{m.revenue!==0?<>{money.format(m.revenue)}<small>Loja {money.format(m.commission)} · Seu valor {money.format(m.revenue-m.commission)}</small><small>Lucro {money.format(m.profit)}</small></>:"—"}</td>{onClose&&<td>{m.kind!=="opening"&&m.kind!=="reversal"&&!reversed.has(m.id)&&<button className="icon-button" aria-label="Estornar movimentação" title="Estornar" onClick={()=>reverse(m)} disabled={busy||loading||Boolean(error)}><RotateCcw/></button>}</td>}</tr>)}</tbody></table></div>}
+      {!movements.length?<p className="store-activity-hint">Nenhuma movimentação registrada.</p>:<div className="consignment-table-scroll"><table className="store-history-table"><thead><tr><th>Data</th><th>Movimentação</th><th>Estilo</th><th>Qtd.</th><th>Estoque</th><th>Venda / lucro</th>{onClose&&<th>Ação</th>}</tr></thead><tbody>{movements.map(m=><tr key={m.id}><td>{dateBR(m.occurred_on)}</td><td>{kindLabels[m.kind]}{reversed.has(m.id)&&<small>Estornado</small>}{m.notes&&<small>{m.notes}</small>}</td><td>{m.style}</td><td>{m.stock_delta>0?"+":""}{m.stock_delta}</td><td>{m.stock_before} → {m.stock_after}</td><td>{m.revenue!==0?<>{money.format(m.revenue)}<small>Loja {money.format(m.commission)} · Seu valor {money.format(m.revenue-m.commission)}</small><small>Lucro {m.profit===null?"Pendente":money.format(m.profit)}</small></>:"—"}</td>{onClose&&<td>{m.kind!=="opening"&&m.kind!=="reversal"&&!reversed.has(m.id)&&<button className="icon-button" aria-label="Estornar movimentação" title="Estornar" onClick={()=>reverse(m)} disabled={busy||loading||Boolean(error)}><RotateCcw/></button>}</td>}</tr>)}</tbody></table></div>}
     </>
   </>;
   if(!onClose)return <section className="store-activity-inline">{content}</section>;

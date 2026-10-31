@@ -1,5 +1,5 @@
 export type MovementKind="sale"|"restock"|"withdrawal";
-export type StockMovement={id:string;consignment_id:string;item_id:string;kind:"opening"|MovementKind|"reversal";style:string;quantity:number;stock_delta:number;stock_before:number;stock_after:number;unit_price:number;unit_cost:number;commission:number;revenue:number;profit:number;occurred_on:string;notes:string;created_at:string;reverses_id:string|null};
+export type StockMovement={id:string;consignment_id:string;item_id:string;kind:"opening"|MovementKind|"reversal";style:string;quantity:number;stock_delta:number;stock_before:number;stock_after:number;unit_price:number;unit_cost:number|null;commission:number;revenue:number;profit:number|null;occurred_on:string;notes:string;created_at:string;reverses_id:string|null};
 export const kindLabels:Record<StockMovement["kind"],string>={opening:"Estoque inicial",sale:"Venda",restock:"Reposição",withdrawal:"Retirada sem venda",reversal:"Estorno"};
 export const localToday=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
 export function amount(raw:string,label:string,allowZero=true) {
@@ -17,31 +17,34 @@ export function movementQuantity(kind:MovementKind,raw:string,mode:"add"|"target
   return quantity;
 }
 export function financialSummary(movements:StockMovement[]) {
-  const months=new Map<string,{month:string;revenue:number;profit:number}>();
-  const result={sold:0,restocked:0,revenueCents:0,commissionCents:0,costCents:0,profitCents:0};
+  const months=new Map<string,{month:string;revenue:number;profit:number;missingCostQuantity:number}>();
+  const result={sold:0,restocked:0,revenueCents:0,commissionCents:0,costCents:0,profitCents:0,missingCostQuantity:0};
   for(const m of movements) {
-    const reversal=m.kind==="reversal";
+    const reversal=m.kind==="reversal",sign=reversal?-1:1;
     if(m.kind==="sale"||(reversal&&m.revenue<0)){
-      result.sold+=reversal?-m.quantity:m.quantity;
+      result.sold+=sign*m.quantity;
       result.revenueCents+=Math.round(m.revenue*100);
       result.commissionCents+=Math.round(m.commission*100);
-      result.costCents+=Math.round(m.unit_cost*100)*m.quantity*(reversal?-1:1);
-      result.profitCents+=Math.round(m.profit*100);
-      const month=m.occurred_on.slice(0,7),row=months.get(month)||{month,revenue:0,profit:0};
-      row.revenue+=Math.round(m.revenue*100);row.profit+=Math.round(m.profit*100);months.set(month,row);
+      if(m.unit_cost==null||m.profit==null)result.missingCostQuantity+=sign*m.quantity;
+      else {result.costCents+=Math.round(m.unit_cost*100)*m.quantity*sign;result.profitCents+=Math.round(m.profit*100);}
+      const month=m.occurred_on.slice(0,7),row=months.get(month)||{month,revenue:0,profit:0,missingCostQuantity:0};
+      row.revenue+=Math.round(m.revenue*100);
+      if(m.profit==null)row.missingCostQuantity+=sign*m.quantity;else row.profit+=Math.round(m.profit*100);
+      months.set(month,row);
     }
     if(m.kind==="restock")result.restocked+=m.quantity;
     if(reversal&&m.stock_delta<0&&m.revenue===0)result.restocked-=m.quantity;
   }
-  return {...result,monthly:[...months.values()].sort((a,b)=>a.month.localeCompare(b.month)).map(row=>({...row,revenue:row.revenue/100,profit:row.profit/100}))};
+  return {...result,profitCents:result.missingCostQuantity>0?null:result.profitCents,
+    monthly:[...months.values()].sort((a,b)=>a.month.localeCompare(b.month)).map(row=>({...row,revenue:row.revenue/100,profit:row.missingCostQuantity>0?null:row.profit/100}))};
 }
 export function salePreview(quantity:number,price:string,cost:string,fee:string) {
-  const unitPrice=amount(price,"o preço",false),unitCost=amount(cost,"o custo");
+  const unitPrice=amount(price,"o preço",false),unitCost=cost.trim()?amount(cost,"o custo"):null;
   const revenueCents=Math.round(unitPrice*100)*quantity;
   const feeValue=amount(fee.trim()||"0","o valor da loja");
   const commissionCents=Math.round(feeValue*100)*quantity;
   if(commissionCents>revenueCents)throw new Error("O valor da loja não pode superar o valor vendido.");
-  return {unitPrice,unitCost,commission:commissionCents/100,revenue:revenueCents/100,profit:(revenueCents-Math.round(unitCost*100)*quantity-commissionCents)/100};
+  return {unitPrice,unitCost,commission:commissionCents/100,revenue:revenueCents/100,profit:unitCost===null?null:(revenueCents-Math.round(unitCost*100)*quantity-commissionCents)/100};
 }
 
 import type {ConsignmentItem} from "./model";
