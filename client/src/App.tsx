@@ -345,6 +345,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
 function Layout() {
   const [open, setOpen] = useState(false),
     [registrationsOpen, setRegistrationsOpen] = useState(true),
+    [movementsOpen, setMovementsOpen] = useState(true),
     { authenticatedUserId, users, activeUserId, activeUser, setActiveUserId, groups, activeGroupId, activeGroup, setActiveGroupId, logout } = useSession();
   return (
     <div className="shell">
@@ -368,14 +369,13 @@ function Layout() {
             <Users />
             Grupos
           </NavLink>
-          <NavLink to="/ganhos">
-            <ArrowUpRight />
-            Ganhos
-          </NavLink>
-          <NavLink to="/despesas">
-            <ArrowDownLeft />
-            Despesas
-          </NavLink>
+          <button className="nav-parent" aria-expanded={movementsOpen} aria-controls="movements-menu" onClick={(event) => { event.stopPropagation(); setMovementsOpen((value) => !value); }}>
+            <WalletCards /> Movimentações <span>{movementsOpen ? "−" : "+"}</span>
+          </button>
+          {movementsOpen && <div className="nav-children" id="movements-menu">
+            <NavLink to="/ganhos"><ArrowUpRight />Ganhos</NavLink>
+            <NavLink to="/despesas"><ArrowDownLeft />Despesas</NavLink>
+          </div>}
           <NavLink to="/pedidos">
             <ClipboardList />
             Pedidos
