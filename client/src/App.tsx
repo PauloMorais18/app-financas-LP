@@ -427,7 +427,7 @@ function Layout() {
         </div>
       </aside>
       <div className="content">
-        <header>
+        <header className="app-header">
           <button
             className="menu"
             onClick={() => setOpen(true)}
