@@ -24,6 +24,11 @@ const orderSchema = z.object({
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173", credentials: true }));
 app.use(express.json({ limit: "50kb" }));
+// Legacy Sheets API must never expose the shared database through demo credentials.
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health") return next();
+  return res.status(410).json({ message: "API legada desativada. Utilize a autenticação do Supabase." });
+});
 app.use(rateLimit({ windowMs: 60_000, limit: 200 }));
 const safe =
   (fn: express.RequestHandler): express.RequestHandler =>
@@ -441,7 +446,7 @@ app.get(
   safe(async (req, res) => {
     const q = querySchema.parse(req.query);
     const activeSourceIds = new Set((await store.listSources()).filter((source) => source.active).map((source) => source.id));
-    let data = (await store.list()).filter((item) => item.type !== "income" || activeSourceIds.has(item.sourceId));
+    let data = (await store.list()).filter((item) => item.type !== "income" || activeSourceIds.has(item.sourceId || ""));
     data = data.filter(
       (t) =>
         (!q.search ||
@@ -579,7 +584,7 @@ const dashboard = async (userId = "", sourceId = "", groupId = "") => {
         (!userId || item.userId === userId) &&
         (!groupId || item.groupId === groupId) &&
         (!sourceId || item.sourceId === sourceId) &&
-        (item.type !== "income" || activeSourceIds.has(item.sourceId)),
+        (item.type !== "income" || activeSourceIds.has(item.sourceId || "")),
     ),
     all = recurringProjection(source),
     active = all.filter((t) => t.status !== "cancelled"),

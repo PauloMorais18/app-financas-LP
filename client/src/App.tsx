@@ -1,3 +1,4 @@
+import { LoginPage } from "./features/auth/LoginPage";
 import {
   createContext,
   useCallback,
@@ -199,49 +200,10 @@ export default function App() {
     try { await api.post("/auth/logout"); } finally { setAuthUser(undefined); }
   };
   if (checking) return <div className="auth-loading"><span>FB</span><p>Carregando...</p></div>;
-  if (!authUser) return <LoginPage onLogin={setAuthUser} />;
+  if (!authUser || sessionStorage.getItem("finanbase-recovery")) return <LoginPage onLogin={setAuthUser} />;
   return <AuthenticatedApp authUser={authUser} logout={logout} />;
 }
 
-function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
-  const [name, setName] = useState(""), [email, setEmail] = useState(""), [password, setPassword] = useState(""),
-    [error, setError] = useState(""), [message, setMessage] = useState(""), [loading, setLoading] = useState(false), [signup, setSignup] = useState(false),
-    [showPassword, setShowPassword] = useState(false);
-  const submit = async (event: FormEvent) => {
-    event.preventDefault(); setError(""); setLoading(true);
-    try {
-      if (signup) {
-        const response = await api.post<{ user: AuthUser | null; message: string }>("/auth/signup", { name, email, password });
-        if (response.data.user) localStorage.setItem("finanbase-user", response.data.user.id);
-        setMessage(response.data.message);
-        if (response.data.user && response.data.message === "Conta criada.") onLogin(response.data.user);
-      } else {
-        const response = await api.post<{ user: AuthUser }>("/auth/login", { email: email.trim().toLowerCase(), password });
-        localStorage.setItem("finanbase-user", response.data.user.id);
-        onLogin(response.data.user);
-      }
-    } catch (reason) { setError(errorMessage(reason)); }
-    finally { setLoading(false); }
-  };
-  return <main className="login-page">
-    <section className="login-visual">
-      <div className="login-brand"><span>FB</span><b>Finanbase</b></div>
-      <div><small>CONTROLE FINANCEIRO</small><h1>Suas finanças e sua produção em um só lugar.</h1><p>Acesse seus ganhos, despesas e pedidos com segurança.</p></div>
-    </section>
-    <section className="login-panel">
-      <form className="card login-card" onSubmit={submit}>
-        <div className="login-mark">FB</div><h2>{signup ? "Criar conta" : "Entrar"}</h2><p>{signup ? "Cadastre seu acesso seguro." : "Use seu e-mail para continuar."}</p>
-        {error && <div className="notice error">{error}</div>}
-        {message && <div className="notice success">{message}</div>}
-        {signup && <Field label="Nome"><input autoFocus value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required /></Field>}
-        <Field label="E-mail"><input autoFocus={!signup} type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="username" required /></Field>
-        <Field label="Senha"><div className="password-input"><input type={showPassword?"text":"password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={signup?"new-password":"current-password"} required /><button type="button" onClick={()=>setShowPassword((visible)=>!visible)} aria-label={showPassword?"Ocultar senha":"Mostrar senha"} title={showPassword?"Ocultar senha":"Mostrar senha"}>{showPassword?<EyeOff/>:<Eye/>}</button></div></Field>
-        <button className="primary login-button" disabled={loading || password.length < 6}>{loading ? "Aguarde..." : signup ? "Criar conta" : "Entrar"}</button>
-        <button type="button" className="auth-switch" onClick={() => { setSignup(!signup); setError(""); setMessage(""); }}>{signup ? "Já tenho uma conta" : "Criar uma conta"}</button>
-      </form>
-    </section>
-  </main>;
-}
 
 function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: () => void }) {
   const [toast, setToast] = useState<Toast>();
@@ -1692,6 +1654,7 @@ function UserManagement({
                   required
                 />
               </Field>
+              <Field label="Chaveusuario"><input value={authenticatedUserId} readOnly title="Identificador da conta" /></Field>
               <Field label="E-mail">
                 <input
                   type="email"
