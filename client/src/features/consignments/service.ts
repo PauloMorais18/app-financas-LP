@@ -10,7 +10,7 @@ function check(error:{code?:string;message?:string}|null) {
 export async function listConsignments(groupId:string):Promise<Consignment[]> {
   const rows:Consignment[]=[];
   for(;;) {
-    const {data,error}=await supabase.from("consignments").select("id,group_id,store_name,updated_at,consignment_items(id,style,unit_price,quantity,unit_cost,store_value)").eq("group_id",groupId).order("store_name").order("id").range(rows.length,rows.length+199);
+    const {data,error}=await supabase.from("consignments").select("id,group_id,store_name,updated_at,is_active,consignment_items(id,style,unit_price,quantity,unit_cost,store_value)").eq("group_id",groupId).order("store_name").order("id").range(rows.length,rows.length+199);
     check(error);
     if(!data?.length)return rows;
     rows.push(...data.map(row=>({...row,consignment_items:row.consignment_items.map(item=>({...item,unit_price:Number(item.unit_price),unit_cost:item.unit_cost==null?null:Number(item.unit_cost),store_value:Number(item.store_value||0)}))})));
@@ -30,7 +30,7 @@ export async function deleteConsignment(groupId:string,id:string) {
 
 import type {MovementKind,StockMovement,salePreview} from "./activity-model";
 export async function getConsignment(groupId:string,id:string):Promise<Consignment> {
-  const {data,error}=await supabase.from("consignments").select("id,group_id,store_name,updated_at,consignment_items(id,style,unit_price,quantity,unit_cost,store_value)").eq("group_id",groupId).eq("id",id).single();
+  const {data,error}=await supabase.from("consignments").select("id,group_id,store_name,updated_at,is_active,consignment_items(id,style,unit_price,quantity,unit_cost,store_value)").eq("group_id",groupId).eq("id",id).single();
   check(error);if(!data)throw new Error("Loja não encontrada.");
   return {...data,consignment_items:data.consignment_items.map(item=>({...item,unit_price:Number(item.unit_price),unit_cost:item.unit_cost==null?null:Number(item.unit_cost),store_value:Number(item.store_value||0)}))};
 }
@@ -50,4 +50,11 @@ export async function recordStockMovement(groupId:string,storeId:string,itemId:s
 }
 export async function reverseStockMovement(groupId:string,storeId:string,movementId:string) {
   const {error}=await supabase.rpc("reverse_consignment_movement",{target_group:groupId,target_store:storeId,target_movement:movementId});check(error);
+}
+
+export async function setConsignmentActive(groupId:string,id:string,active:boolean) {
+  const {error}=await supabase.rpc("set_consignment_active",{target_group:groupId,target_store:id,active});check(error);
+}
+export async function deleteStockMovement(groupId:string,storeId:string,id:string) {
+  const {error}=await supabase.rpc("delete_consignment_movement",{target_group:groupId,target_store:storeId,target_movement:id});check(error);
 }

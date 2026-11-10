@@ -1,5 +1,5 @@
 export type ConsignmentItem = {id?:string; style:string; unit_price:number; quantity:number; unit_cost?:number|null; store_value?:number};
-export type Consignment = {id:string; group_id:string; store_name:string; updated_at:string; consignment_items:ConsignmentItem[]};
+export type Consignment = {id:string; group_id:string; store_name:string; updated_at:string; is_active?:boolean; consignment_items:ConsignmentItem[]};
 export type DraftItem = {key:string; id?:string; style:string; price:string; quantity:string; cost?:string; storeValue?:string};
 export const newItem = ():DraftItem => ({key:crypto.randomUUID(),style:"",price:"",quantity:"1"});
 export function parseItems(items:DraftItem[]):ConsignmentItem[] {

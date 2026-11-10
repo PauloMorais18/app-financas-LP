@@ -1,9 +1,9 @@
 import {useEffect,useRef,useState,type FormEvent} from "react";
 import {BarChart,Bar,CartesianGrid,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend} from "recharts";
-import {Plus,X,RotateCcw} from "lucide-react";
+import {Plus,X,RotateCcw,Trash2} from "lucide-react";
 import {money,dateBR} from "../../utils/format";
 import type {Consignment} from "./model";
-import {getConsignment,listStockMovements,recordStockMovement,reverseStockMovement} from "./service";
+import {getConsignment,listStockMovements,recordStockMovement,reverseStockMovement,deleteStockMovement} from "./service";
 import {stockForecast,financialSummary,kindLabels,localToday,movementQuantity,salePreview,type MovementKind,type StockMovement} from "./activity-model";
 type Props={store:Consignment;groupId:string;onChanged:()=>void;notify:(message:string,error?:boolean)=>void;onClose?:()=>void;onManage?:()=>void;onEditStore?:(store:Consignment)=>void};
 export default function StoreActivity({store:initial,groupId,onChanged,notify,onClose,onManage,onEditStore}:Props) {
@@ -80,11 +80,19 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
     catch(reason){setFormError(reason instanceof Error?reason.message:"Erro ao estornar.")}
     finally{lock.current=false;setBusy(false)}
   };
+  const removeMovement=async(m:StockMovement)=>{
+    if(lock.current||loading||error||!window.confirm("Excluir esta movimentação permanentemente? O estoque e os resultados serão recalculados. Se houver estorno vinculado, ele também ser? excluído."))return;
+    lock.current=true;setBusy(true);setFormError("");
+    try{await deleteStockMovement(groupId,store.id,m.id);setVersion(v=>v+1);onChanged();notify("Movimentação excluída e estoque atualizado.")}
+    catch(reason){setFormError(reason instanceof Error?reason.message:"Erro ao excluir movimentação.")}
+    finally{lock.current=false;setBusy(false)}
+  };
   const content=<>
     {onClose&&<div className="consignment-modal-heading"><div><h2 id="store-activity-title">{store.store_name}</h2><p>Estoque, vendas e reposições da loja.</p></div><button className="icon-button" aria-label="Fechar loja" onClick={onClose} disabled={busy}><X/></button></div>}
     {error&&<div className="notice error" role="alert">{error}<button className="outline" onClick={()=>setVersion(v=>v+1)}>Tentar novamente</button></div>}
     {loading&&<p role="status">Atualizando histórico...</p>}
     <>
+      <details className="store-details"><summary>Ver indicadores e gráficos</summary>
       <h3 className="store-section-title">Previsão do estoque atual · {forecast.quantity} chaveiros</h3>
       <div className="store-forecast-summary" aria-live="polite">
         <div><small>Valor total previsto</small><strong>{money.format(forecast.revenueCents/100)}</strong></div>
@@ -102,7 +110,9 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
         <section className="store-chart-panel"><h3>Distribuição prevista por estilo</h3><ResponsiveContainer width="100%" height={190}><BarChart data={forecast.styles}><CartesianGrid vertical={false} stroke="#edf0f5"/><XAxis dataKey="name" tick={{fontSize:11}}/><YAxis width={55}/><Tooltip formatter={(value:number)=>money.format(value)}/><Legend/><Bar dataKey="store" name="Loja" stackId="stock" fill="#ffad4d"/><Bar dataKey="yours" name="Sua parte" stackId="stock" fill="#2161f5"/></BarChart></ResponsiveContainer></section>
         <section className="store-chart-panel"><h3>Vendas e lucro por mês</h3><ResponsiveContainer width="100%" height={190}><BarChart data={monthlyData}><CartesianGrid vertical={false} stroke="#edf0f5"/><XAxis dataKey="month" tick={{fontSize:11}}/><YAxis width={55}/><Tooltip formatter={(value:number)=>money.format(value)}/><Legend/><Bar dataKey="revenue" name="Vendas" fill="#2161f5"/><Bar dataKey="profit" name="Lucro" fill="#0aae5b"/></BarChart></ResponsiveContainer></section>
       </div>
-      {onClose&&<form className="store-movement-form" onSubmit={submit}><h3>Registrar movimentação</h3><fieldset disabled={busy||loading||Boolean(error)}><div className="form-grid">
+      </details>
+      {store.is_active===false&&<p className="notice">Empresa inativa. O estoque e o histórico estão preservados. Reative a empresa para registrar novas movimentações.</p>}
+      {onClose&&store.is_active!==false&&<form className="store-movement-form" onSubmit={submit}><h3>Registrar movimentação</h3><fieldset disabled={busy||loading||Boolean(error)}><div className="form-grid">
         <label className="field">Tipo<select value={kind} onChange={e=>{setKind(e.target.value as MovementKind);setQuantity("");setFormError("")}}><option value="sale">Venda</option><option value="restock">Reposição</option><option value="withdrawal">Retirada sem venda</option></select></label>
         <label className="field">Estilo<select value={itemId} onChange={e=>selectItem(e.target.value)} required>{store.consignment_items.map(row=><option value={row.id} key={row.id}>{row.style} · {row.quantity} em estoque</option>)}</select></label>
         {kind==="restock"&&<label className="field">Como informar a reposição<select value={mode} onChange={e=>{setMode(e.target.value as "add"|"target");setQuantity("")}}><option value="add">Quantidade adicionada</option><option value="target">Completar estoque para</option></select></label>}
@@ -121,14 +131,15 @@ export default function StoreActivity({store:initial,groupId,onChanged,notify,on
       {formError&&<div className="notice error" role="alert">{formError}</div>}
       <div className="form-actions"><button className="primary" disabled={busy||loading||Boolean(error)||!item}><Plus/>{busy?"Salvando...":"Registrar"}</button></div>
       </form>}
+      {formError&&store.is_active===false&&<div className="notice error" role="alert">{formError}</div>}
       <div className="store-history-heading"><h3>Histórico da loja</h3>{onManage&&<button className="outline" onClick={onManage}>Registrar movimentação</button>}</div>
-      {!movements.length?<p className="store-activity-hint">Nenhuma movimentação registrada.</p>:<div className="consignment-table-scroll"><table className="store-history-table"><thead><tr><th>Data</th><th>Movimentação</th><th>Estilo</th><th>Qtd.</th><th>Estoque</th><th>Venda / lucro</th>{onClose&&<th>Ação</th>}</tr></thead><tbody>{movements.map(m=><tr key={m.id}><td>{dateBR(m.occurred_on)}</td><td>{kindLabels[m.kind]}{reversed.has(m.id)&&<small>Estornado</small>}{m.notes&&<small>{m.notes}</small>}</td><td>{m.style}</td><td>{m.stock_delta>0?"+":""}{m.stock_delta}</td><td>{m.stock_before} → {m.stock_after}</td><td>{m.revenue!==0?<>{money.format(m.revenue)}<small>Loja {money.format(m.commission)} · Seu valor {money.format(m.revenue-m.commission)}</small><small>Lucro {m.profit===null?"Pendente":money.format(m.profit)}</small></>:"—"}</td>{onClose&&<td>{m.kind!=="opening"&&m.kind!=="reversal"&&!reversed.has(m.id)&&<button className="icon-button" aria-label="Estornar movimentação" title="Estornar" onClick={()=>reverse(m)} disabled={busy||loading||Boolean(error)}><RotateCcw/></button>}</td>}</tr>)}</tbody></table></div>}
+      {!movements.length?<p className="store-activity-hint">Nenhuma movimentação registrada.</p>:<div className="consignment-table-scroll"><table className="store-history-table"><thead><tr><th>Data</th><th>Movimentação</th><th>Estilo</th><th>Qtd.</th><th>Estoque</th><th>Venda / lucro</th>{onClose&&<th>Ação</th>}</tr></thead><tbody>{movements.map(m=><tr key={m.id}><td>{dateBR(m.occurred_on)}</td><td>{kindLabels[m.kind]}{reversed.has(m.id)&&<small>Estornado</small>}{m.notes&&<small>{m.notes}</small>}</td><td>{m.style}</td><td>{m.stock_delta>0?"+":""}{m.stock_delta}</td><td>{m.stock_before} → {m.stock_after}</td><td>{m.revenue!==0?<>{money.format(m.revenue)}<small>Loja {money.format(m.commission)} · Seu valor {money.format(m.revenue-m.commission)}</small><small>Lucro {m.profit===null?"Pendente":money.format(m.profit)}</small></>:"—"}</td>{onClose&&<td><div className="consignment-actions">{store.is_active!==false&&m.kind!=="opening"&&m.kind!=="reversal"&&!reversed.has(m.id)&&<button className="icon-button" aria-label="Estornar movimentação" title="Estornar" onClick={()=>reverse(m)} disabled={busy||loading||Boolean(error)}><RotateCcw/></button>}<button className="icon-button danger" aria-label="Excluir movimentação" title="Excluir movimentação" onClick={()=>removeMovement(m)} disabled={busy||loading||Boolean(error)}><Trash2/></button></div></td>}</tr>)}</tbody></table></div>}
     </>
   </>;
   if(!onClose)return <section className="store-activity-inline">{content}</section>;
   return <div className="consignment-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget&&!lock.current)onClose()}}><section ref={dialog} tabIndex={-1} className="card consignment-modal store-activity-modal" role="dialog" aria-modal="true" aria-labelledby="store-activity-title" onKeyDown={e=>{
     if(e.key!=="Tab")return;
-    const elements=Array.from(e.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled),input:not(:disabled),select:not(:disabled)")).filter(element=>!element.closest("fieldset:disabled"));
+    const elements=Array.from(e.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled),input:not(:disabled),select:not(:disabled),summary")).filter(element=>!element.closest("fieldset:disabled"));
     const first=elements[0],last=elements[elements.length-1];
     if(e.shiftKey&&(document.activeElement===first||document.activeElement===e.currentTarget)){e.preventDefault();last?.focus()}
     else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}

@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState,type FormEvent} from "react";
-import {Building2,Package,Pencil,Plus,Trash2,X,Search,BarChart3} from "lucide-react";
+import {Building2,Package,Pencil,Plus,Trash2,X,Search,BarChart3,Power} from "lucide-react";
 import {money} from "../../utils/format";
-import {deleteConsignment,listConsignments,saveConsignment} from "./service";
+import {deleteConsignment,listConsignments,saveConsignment,setConsignmentActive} from "./service";
 import {newItem,parseItems,totals,type Consignment,type DraftItem} from "./model";
 import "./consignments.css";
 import StoreActivity from "./StoreActivity";
@@ -16,6 +16,7 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
   const [saving,setSaving]=useState(false),[deleting,setDeleting]=useState(""),[formError,setFormError]=useState("");
   const [expanded,setExpanded]=useState<string[]>([]),[activityId,setActivityId]=useState("");
   const [search,setSearch]=useState(""),[showSummary,setShowSummary]=useState(false);
+  const [status,setStatus]=useState("active");
   const [returnToActivity,setReturnToActivity]=useState("");
   const savingRef=useRef(false);
   useEffect(()=>{
@@ -69,16 +70,25 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
     catch(reason){notify(reason instanceof Error?reason.message:"Não foi possível excluir.",true)}
     finally{setDeleting("")}
   };
+  const toggleActive=async(store:Consignment)=>{
+    const active=store.is_active===false;
+    if(deleting||!window.confirm(`${active?"Reativar":"Inativar"} a empresa "${store.store_name}"? O estoque e o histórico serão mantidos.`))return;
+    setDeleting(store.id);
+    try{await setConsignmentActive(groupId,store.id,active);setReload(v=>v+1);notify(active?"Empresa reativada.":"Empresa inativada. Histórico preservado.")}
+    catch(reason){notify(reason instanceof Error?reason.message:"Erro ao alterar empresa.",true)}
+    finally{setDeleting("")}
+  };
   const draftForecast=stockForecast(items.map(item=>({style:item.style||"Estilo",quantity:Math.max(0,Number(item.quantity)||0),unit_price:Math.max(0,Number(item.price.replace(",","."))||0),store_value:Math.max(0,Number((item.storeValue||"0").replace(",","."))||0),unit_cost:item.cost?.trim()?Math.max(0,Number(item.cost.replace(",","."))||0):null})));
-  const summary=totals(stores.flatMap(store=>store.consignment_items));
+  const activeStores=stores.filter(store=>store.is_active!==false);
+  const summary=totals(activeStores.flatMap(store=>store.consignment_items));
   let draftTotal:number|null=null;
   try{draftTotal=totals(parseItems(items)).cents}catch{}
-  const visibleStores=stores.filter(store=>normalizeCompanySearch(store.store_name).includes(normalizeCompanySearch(search)));
+  const visibleStores=stores.filter(store=>(status==="all"||(status==="inactive"?store.is_active===false:store.is_active!==false))&&normalizeCompanySearch(store.store_name).includes(normalizeCompanySearch(search)));
   const renderStore=(store:Consignment)=>{
 
           const total=totals(store.consignment_items);
           return <article className="card consignment-card" key={store.id} data-store-id={store.id} style={{order:visibleStores.indexOf(store)}}>
-            <div className="consignment-card-heading"><span className="consignment-store-icon"><Building2/></span><h2>{store.store_name}</h2><div className="consignment-actions"><button className="icon-button" aria-label={`Editar ${store.store_name}`} title="Editar loja" onClick={()=>open(store)} disabled={Boolean(deleting)}><Pencil/></button><button className="icon-button danger" aria-label={`Excluir ${store.store_name}`} title="Excluir loja" onClick={()=>remove(store)} disabled={Boolean(deleting)}><Trash2/></button></div></div>
+            <div className="consignment-card-heading"><span className="consignment-store-icon"><Building2/></span><h2>{store.store_name}{store.is_active===false&&<small className="store-inactive-label">Inativa</small>}</h2><div className="consignment-actions"><button className="icon-button" aria-label={`${store.is_active===false?"Reativar":"Inativar"} ${store.store_name}`} title={store.is_active===false?"Reativar empresa":"Inativar empresa"} onClick={()=>toggleActive(store)} disabled={Boolean(deleting)}><Power/></button><button className="icon-button" aria-label={`Editar ${store.store_name}`} title="Editar loja" onClick={()=>open(store)} disabled={Boolean(deleting)}><Pencil/></button><button className="icon-button danger" aria-label={`Excluir ${store.store_name}`} title="Excluir loja" onClick={()=>remove(store)} disabled={Boolean(deleting)}><Trash2/></button></div></div>
             <div className="consignment-table-scroll"><table><thead><tr><th>Estilo</th><th>Valor un.</th><th>Qtd.</th><th>Total</th></tr></thead><tbody>{store.consignment_items.map((item,index)=><tr key={item.id||index}><td>{item.style}</td><td>{money.format(item.unit_price)}</td><td>{item.quantity}</td><td>{money.format(Math.round(item.unit_price*100)*item.quantity/100)}</td></tr>)}</tbody></table></div>
             <footer><span><Package/>{total.quantity} chaveiro(s)</span><strong>{money.format(total.cents/100)}</strong></footer>
             <div className="store-card-controls"><button className="outline" aria-expanded={expanded.includes(store.id)} onClick={()=>setExpanded(current=>current.includes(store.id)?current.filter(id=>id!==store.id):[...current,store.id])}>{expanded.includes(store.id)?"Recolher histórico":"Expandir histórico"}</button><button className="primary" onClick={()=>setActivityId(store.id)}>Movimentações da loja</button></div>
@@ -91,10 +101,11 @@ export default function ConsignmentsPage({groupId,notify}:Props) {
     {!groupId?<div className="card consignment-empty">Selecione um grupo para gerenciar os consignados.</div>:<>
       {error?<div className="notice error" role="alert">{error} <button className="outline" onClick={()=>setReload(value=>value+1)}>Tentar novamente</button></div>:loading?<div className="card consignment-empty" role="status">Carregando lojas parceiras...</div>:<>
         <section className="consignment-summary" aria-label="Resumo dos consignados">
-          <div className="card"><small>Lojas parceiras</small><strong>{stores.length}</strong></div>
+          <div className="card"><small>Lojas parceiras</small><strong>{activeStores.length}</strong></div>
           <div className="card"><small>Chaveiros nas lojas</small><strong>{summary.quantity}</strong></div>
           <div className="card"><small>Valor total em consignação</small><strong>{money.format(summary.cents/100)}</strong></div>
         </section>
+        <div className="consignment-status-filter"><label htmlFor="consignment-status">Empresas</label><select id="consignment-status" value={status} onChange={event=>setStatus(event.target.value)}><option value="active">Ativas</option><option value="inactive">Inativas</option><option value="all">Todas</option></select></div>
         <div className="consignment-search"><label htmlFor="consignment-company-search"><Search/>Pesquisar empresa</label><div><input id="consignment-company-search" type="search" placeholder="Digite o nome da loja parceira" value={search} onChange={event=>setSearch(event.target.value)}/>{search&&<button className="icon-button" aria-label="Limpar pesquisa" onClick={()=>setSearch("")}><X/></button>}</div><small role="status">{visibleStores.length} de {stores.length} empresa(s)</small></div>
         {stores.length?<>{visibleStores.length?<section className="consignment-grid consignment-columns">{[0,1].map(column=><div className="consignment-column" key={column}>{visibleStores.filter((_,index)=>index%2===column).map(renderStore)}</div>)}</section>:<div className="card consignment-empty"><Search/><h2>Nenhuma empresa encontrada</h2><p>Tente outro nome ou limpe a pesquisa.</p><button className="outline" onClick={()=>setSearch("")}>Limpar pesquisa</button></div>}</>:<div className="card consignment-empty"><Building2/><h2>Cadastre sua primeira loja parceira</h2><p>Adicione os estilos, os valores e a quantidade de chaveiros deixados em cada loja.</p><button className="primary" onClick={()=>open(null)}><Plus/>Cadastrar loja</button></div>}
       </>}

@@ -1,0 +1,36 @@
+const fs=require('node:fs');
+const assert=require('node:assert/strict');
+const {PGlite}=require(process.argv[2]||'@electric-sql/pglite');
+(async()=>{const db=await PGlite.create();try{
+ await db.exec(`create role anon;create role authenticated;create schema auth;
+ create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+ create table profiles(id uuid primary key,active boolean default true,name text,email text);
+ create table groups(id uuid primary key);
+ create table group_members(user_id uuid,group_id uuid);
+ create function is_group_member(uuid) returns boolean language sql as $$ select true $$;
+ create table orders(id uuid primary key,group_id uuid,user_id uuid,status text,due_date date,created_at timestamptz,source_id uuid,product_id uuid,client_id uuid,color_id uuid);
+ create table transactions(id uuid primary key,group_id uuid,user_id uuid,date date,source_id uuid,product_id uuid,client_id uuid,order_id uuid);
+ create table order_products(order_id uuid,product_id uuid);`);
+ for(const t of ['income_sources','companies','colors','clients','products'])await db.exec(`create table ${t}(id uuid primary key,group_id uuid,name text)`);
+ const user=crypto.randomUUID(),group=crypto.randomUUID();
+ await db.query('insert into profiles(id) values($1)',[user]);
+ await db.query('insert into groups values($1)',[group]);
+ await db.query('insert into group_members values($1,$2)',[user,group]);
+ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[user]);
+ // Simula um banco com as migracoes antigas ja aplicadas e estoque existente.
+ for(const name of ['20261031_create_consignments.sql','20261031_consignment_movements.sql','20261031_optional_consignment_cost.sql'])await db.exec(fs.readFileSync('migration/'+name,'utf8'));
+ const store=(await db.query("select save_consignment($1,null,'Teste',$2::jsonb,null) as id",[group,JSON.stringify([{style:'Geral',unit_price:10,quantity:4}])])).rows[0].id;
+ const sql=fs.readFileSync('migration/EXECUTAR_ATUALIZACAO.sql','utf8');
+ await db.exec(sql);
+ assert.equal((await db.query('select is_active from consignments where id=$1',[store])).rows[0].is_active,true);
+ assert.equal((await db.query('select count(*)::int as n from consignment_movements')).rows[0].n,1);
+ await db.query('select set_consignment_active($1,$2,false)',[group,store]);
+ const opening=(await db.query('select id from consignment_movements')).rows[0].id;
+ await db.query('select delete_consignment_movement($1,$2,$3)',[group,store,opening]);
+ await db.exec(sql);
+ assert.equal((await db.query('select count(*)::int as n from consignment_movements')).rows[0].n,0);
+ assert.equal((await db.query('select is_active from consignments where id=$1',[store])).rows[0].is_active,false);
+ assert.equal((await db.query('select quantity from consignment_items')).rows[0].quantity,0);
+ assert.equal((await db.query('select count(*)::int as n from app_migrations')).rows[0].n,1);
+ console.log('PASS: arquivo consolidado, banco existente, estoque preservado, inativacao, exclusao e reexecucao sem reaplicar.');
+}finally{await db.close()}})().catch(e=>{console.error(e);process.exitCode=1});
