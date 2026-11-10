@@ -2,17 +2,20 @@ import { useRef, useState, type FormEvent } from "react";
 import { supabase, supabaseConfigured } from "../../services/supabase";
 import { api } from "../../services/api";
 
-import { ArrowRight, ArrowLeft, Eye, EyeOff, LockKeyhole, LoaderCircle, Check, ShieldCheck } from "lucide-react";
+import { ArrowRight, ArrowLeft, Eye, EyeOff, LockKeyhole, LoaderCircle, Mail, UserRound, KeyRound, ShieldCheck } from "lucide-react";
 import "./login.css";
+
+const rememberedEmail = () => { try { return localStorage.getItem("finanbase-login-email") || ""; } catch { return ""; } };
 
 type User = { id: string; name: string; email?: string };
 export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
   const [mode, setMode] = useState<"login" | "signup" | "recover" | "reset">(sessionStorage.getItem("finanbase-recovery") ? "reset" : "login");
   const [name, setName] = useState("");
-  const [email, setEmail] = useState(sessionStorage.getItem("finanbase-recovery-email") || "");
+  const [email, setEmail] = useState(sessionStorage.getItem("finanbase-recovery-email") || rememberedEmail());
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [token, setToken] = useState("");
+  const [remember, setRemember] = useState(Boolean(rememberedEmail()));
   const submitting = useRef(false);
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -42,6 +45,7 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
         if (response.data.user && response.data.message === "Conta criada.") onLogin(response.data.user);
       } else {
         const response = await api.post<{ user: User }>("/auth/login", { email: normalizedEmail, password });
+        try { if (remember) localStorage.setItem("finanbase-login-email", normalizedEmail); else localStorage.removeItem("finanbase-login-email"); } catch {}
         onLogin(response.data.user);
       }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível continuar."); }
@@ -56,33 +60,47 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao acessar o Google."); submitting.current = false; setBusy(false); }
   };
   const recovery = mode === "recover" || mode === "reset";
-  const title = mode === "signup" ? "Dê o próximo passo." : mode === "recover" ? "Vamos recuperar seu acesso." : mode === "reset" ? "Um novo começo." : "Bom ter você de volta.";
+  const title = mode === "signup" ? "Criar sua conta" : mode === "recover" ? "Recuperar acesso" : mode === "reset" ? "Criar nova senha" : "Fazer login";
   return <main className="login-page">
-    <section className="login-visual" aria-label="Finanbase: gestão financeira e produção">
-      <div className="login-brand"><img src="/finanbase-icon.svg" alt="" width="44" height="44"/><b>finanbase<span>Gestão que acompanha você.</span></b></div>
-      <div className="login-visual-copy"><span className="login-eyebrow"><span/> MAIS CLAREZA. MAIS POSSIBILIDADES.</span><h1>Seu talento cria.<br/>Sua gestão<br/><em>faz crescer.</em></h1><p>Finanças, pedidos e produção em sintonia.<br/>Mais tempo para o que você faz de melhor.</p><div className="login-benefits"><span><Check/> Finanças organizadas</span><span><Check/> Produção no controle</span></div></div>
-      <div className="login-visual-footer"><span>Um só lugar para o seu negócio.</span><span>Feito para simplificar.</span></div>
-    </section>
+    <div className="login-layout">
     <section className="login-panel">
       <header className="login-mobile-brand"><img src="/finanbase-icon.svg" alt="" width="36" height="36"/><b>finanbase</b></header>
-      <div className="login-panel-meta"><span><span/> Seu espaço de trabalho</span><span>Português · BR</span></div>
       <div className="login-card">
-        {!recovery ? <nav className="login-tabs" aria-label="Acesso à conta"><button type="button" aria-current={mode === "login" ? "page" : undefined} disabled={busy} onClick={()=>switchMode("login")}>Entrar</button><button type="button" aria-current={mode === "signup" ? "page" : undefined} disabled={busy} onClick={()=>switchMode("signup")}>Criar conta</button></nav> : <button className="login-back" type="button" disabled={busy} onClick={()=>switchMode("login")}><ArrowLeft/> Voltar para entrar</button>}
-        <div className="login-welcome">{recovery && <span className="login-recovery-icon"><LockKeyhole/></span>}<h2>{title}</h2><p>{mode === "signup" ? "Crie sua conta e organize seu negócio com leveza." : mode === "recover" ? "Informe seu e-mail para receber um código de recuperação." : mode === "reset" ? "Digite o código recebido e escolha sua nova senha." : "Entre na sua conta e continue de onde parou."}</p></div>
+        {recovery && <button className="login-back" type="button" disabled={busy} onClick={()=>switchMode("login")}><ArrowLeft/> Voltar para entrar</button>}
+        <div className="login-welcome">{recovery && <span className="login-recovery-icon"><LockKeyhole/></span>}<h2>{title}</h2><p>{mode === "signup" ? "Crie sua conta e organize seu negócio com leveza." : mode === "recover" ? "Informe seu e-mail para receber um código de recuperação." : mode === "reset" ? "Digite o código recebido e escolha sua nova senha." : ""}</p></div>
         <form onSubmit={submit} aria-busy={busy}>
           {error && <div className="notice error" role="alert">{error}</div>}{message && <div className="notice success" role="status">{message}</div>}
           <fieldset disabled={busy} className="auth-fields">
-            {mode === "signup" && <label htmlFor="auth-name">Seu nome<input id="auth-name" value={name} onChange={e=>setName(e.target.value)} autoComplete="name" placeholder="Como podemos chamar você?" maxLength={120} pattern=".*\S.*" required/></label>}
-            <label htmlFor="auth-email">E-mail<input id="auth-email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" placeholder="voce@exemplo.com" required readOnly={mode === "reset"} autoCapitalize="none" spellCheck={false}/></label>
-            {mode === "reset" && <label htmlFor="auth-token">Código recebido por e-mail<input id="auth-token" value={token} onChange={e=>setToken(e.target.value)} autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6,8}" maxLength={8} placeholder="Digite o código" required/></label>}
-            {mode !== "recover" && <><div className="login-password-field"><div className="login-label-row"><label htmlFor="auth-password">{mode === "reset" ? "Nova senha" : "Senha"}</label>{mode === "login" && <button className="login-text-button" type="button" onClick={()=>switchMode("recover")}>Esqueceu a senha?</button>}</div><div className="password-input"><input id="auth-password" type={show ? "text" : "password"} value={password} onChange={e=>setPassword(e.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "login" ? 1 : 8} placeholder={mode === "login" ? "Digite sua senha" : "Crie uma senha com 8 ou mais caracteres"} aria-describedby={mode !== "login" ? "auth-password-hint" : undefined} required/><button type="button" onClick={()=>setShow(!show)} aria-label={show ? "Ocultar senha" : "Mostrar senha"} aria-pressed={show} title={show ? "Ocultar senha" : "Mostrar senha"}>{show ? <EyeOff/> : <Eye/>}</button></div>{mode !== "login" && <small id="auth-password-hint">Use pelo menos 8 caracteres.</small>}</div>{mode !== "login" && <label htmlFor="auth-confirmation">Confirmar senha<input id="auth-confirmation" type={show ? "text" : "password"} value={confirmation} onChange={e=>setConfirmation(e.target.value)} autoComplete="new-password" minLength={8} placeholder="Repita sua senha" required/></label>}</>}
-            <button className="primary login-button" type="submit">{busy ? <><LoaderCircle className="login-spinner"/> Aguarde...</> : <>{mode === "signup" ? "Criar minha conta" : mode === "recover" ? "Enviar código" : mode === "reset" ? "Salvar nova senha" : "Entrar na minha conta"}<ArrowRight/></>}</button>
+            {mode === "signup" && <label className="login-icon-field" htmlFor="auth-name"><span className="login-sr-only">Seu nome</span><UserRound aria-hidden="true"/><input id="auth-name" value={name} onChange={e=>setName(e.target.value)} autoComplete="name" placeholder="Como podemos chamar você?" maxLength={120} pattern=".*\S.*" required/></label>}
+            <label className="login-icon-field" htmlFor="auth-email"><span className="login-sr-only">E-mail</span><Mail aria-hidden="true"/><input id="auth-email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" placeholder="Seu e-mail" required readOnly={mode === "reset"} autoCapitalize="none" spellCheck={false}/></label>
+            {mode === "reset" && <label className="login-icon-field" htmlFor="auth-token"><span className="login-sr-only">Código recebido por e-mail</span><KeyRound aria-hidden="true"/><input id="auth-token" value={token} onChange={e=>setToken(e.target.value)} autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6,8}" maxLength={8} placeholder="Digite o código" required/></label>}
+            {mode !== "recover" && <><div className="login-password-field"><div className="login-label-row"><label className="login-sr-only" htmlFor="auth-password">{mode === "reset" ? "Nova senha" : "Senha"}</label></div><div className="password-input"><LockKeyhole className="login-input-icon" aria-hidden="true"/><input id="auth-password" type={show ? "text" : "password"} value={password} onChange={e=>setPassword(e.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "login" ? 1 : 8} placeholder={mode === "login" ? "Senha" : "Senha com 8 ou mais caracteres"} aria-describedby={mode !== "login" ? "auth-password-hint" : undefined} required/><button type="button" onClick={()=>setShow(!show)} aria-label={show ? "Ocultar senha" : "Mostrar senha"} aria-pressed={show} title={show ? "Ocultar senha" : "Mostrar senha"}>{show ? <EyeOff/> : <Eye/>}</button></div>{mode !== "login" && <small id="auth-password-hint">Use pelo menos 8 caracteres.</small>}</div>{mode !== "login" && <label className="login-icon-field" htmlFor="auth-confirmation"><span className="login-sr-only">Confirmar senha</span><LockKeyhole aria-hidden="true"/><input id="auth-confirmation" type={show ? "text" : "password"} value={confirmation} onChange={e=>setConfirmation(e.target.value)} autoComplete="new-password" minLength={8} placeholder="Repita sua senha" required/></label>}</>}
+            {mode === "login" && <div className="login-options"><label className="login-remember"><input type="checkbox" checked={remember} onChange={e=>{setRemember(e.target.checked);if(!e.target.checked){try{localStorage.removeItem("finanbase-login-email")}catch{}}}}/>Lembrar e-mail</label><button className="login-text-button" type="button" onClick={()=>switchMode("recover")}>Esqueceu a senha?</button></div>}
+            <button className="primary login-button" type="submit">{busy ? <><LoaderCircle className="login-spinner"/> Aguarde...</> : <>{mode === "signup" ? "Criar minha conta" : mode === "recover" ? "Enviar código" : mode === "reset" ? "Salvar nova senha" : "Entrar"}<ArrowRight/></>}</button>
           </fieldset>
         </form>
-        {!recovery && <div className="login-social"><div className="auth-divider"><span>ou continue com</span></div><button type="button" className="google-login" onClick={google} disabled={busy} aria-label="Continuar com Google" title="Continuar com Google"><svg width="24" height="24" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6C44.4 38.03 46.98 31.9 46.98 24.55Z"/><path fill="#FBBC05" d="M10.53 28.59a14.4 14.4 0 0 1 0-9.18l-7.98-6.19a24 24 0 0 0 0 21.56l7.98-6.19Z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.91-5.8l-7.73-6c-2.15 1.45-4.92 2.3-8.18 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48Z"/></svg></button></div>}
-        <p className="login-bottom-note">{mode === "signup" ? "Já tem uma conta?" : recovery ? "Lembrou sua senha?" : "Ainda não tem uma conta?"} <button type="button" disabled={busy} onClick={()=>switchMode(mode === "login" ? "signup" : "login")}>{mode === "login" ? "Comece por aqui" : "Entrar"}</button></p>
+        {!recovery && <div className="login-social"><div className="auth-divider"><span>ou entre com sua conta</span></div><button type="button" className="google-login" onClick={google} disabled={busy} aria-label="Continuar com Google" title="Continuar com Google"><svg width="24" height="24" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6C44.4 38.03 46.98 31.9 46.98 24.55Z"/><path fill="#FBBC05" d="M10.53 28.59a14.4 14.4 0 0 1 0-9.18l-7.98-6.19a24 24 0 0 0 0 21.56l7.98-6.19Z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.91-5.8l-7.73-6c-2.15 1.45-4.92 2.3-8.18 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48Z"/></svg></button></div>}
+        <p className="login-bottom-note">{mode === "signup" ? "Já tem uma conta?" : recovery ? "Lembrou sua senha?" : "Ainda não tem uma conta?"} <button type="button" disabled={busy} onClick={()=>switchMode(mode === "login" ? "signup" : "login")}>{mode === "login" ? "Criar conta" : "Entrar"}</button></p>
       </div>
-      <footer className="login-panel-footer"><ShieldCheck aria-hidden="true"/><span>Seu negócio em boas mãos. Acesso seguro.</span></footer>
     </section>
+    <section className="login-presentation" aria-label="Conheça o Finanbase">
+      <div className="login-product-brand"><img src="/finanbase-icon.svg" alt="" width="76" height="76"/><span>finanbase<small>simples. conectado. seu.</small></span></div>
+      <h1>Gestão para o seu negócio</h1>
+      <p className="login-product-description">Mais clareza nas finanças.<br/>Mais controle em cada etapa da produção.</p>
+      <div className="login-product-features"><p>Financeiro <span>|</span> Pedidos <span>|</span> Produção</p><p>Consignados <span>|</span> Clientes <span>|</span> Relatórios</p><p className="login-product-tagline">Tudo conectado, em um só lugar.</p></div>
+      <div className="login-laptop" aria-hidden="true">
+        <div className="login-laptop-screen"><div className="login-demo-app">
+          <aside className="login-demo-sidebar"><div className="login-demo-brand"><img src="/finanbase-icon.svg" alt=""/>finanbase</div><i className="selected">▦ &nbsp; Visão geral</i><i>↗ &nbsp; Movimentações</i><i>▤ &nbsp; Pedidos</i><i>▧ &nbsp; Produção</i><i>▥ &nbsp; Consignados</i><i>♙ &nbsp; Clientes</i><div className="login-demo-avatar">FB <span>Meu negócio</span></div></aside>
+          <div className="login-demo-content"><div className="login-demo-topbar"><b>Visão geral</b><span>Seu negócio, em dia <span className="login-demo-dot"/></span></div><div className="login-demo-heading"><div><strong>Uma visão de tudo.</strong><small>Acompanhe os resultados do seu negócio.</small></div><span>+ Nova movimentação</span></div>
+          <div className="login-demo-kpis"><div><small>Saldo disponível</small><b>R$ 12.450,00</b><em>↗ Seu negócio crescendo</em></div><div><small>Entradas do mês</small><b>R$ 18.200,00</b><em>↗ Receitas organizadas</em></div><div><small>Saídas do mês</small><b>R$ 5.750,00</b><em>Despesas sob controle</em></div></div>
+          <div className="login-demo-charts"><div><strong>Fluxo de caixa</strong><svg viewBox="0 0 250 100"><path d="M0 20H250M0 45H250M0 70H250M0 95H250" fill="none" stroke="#eef2f7"/><path d="M0 80L25 65L50 73L75 38L100 50L125 28L150 40L175 15L200 26L225 12L250 3V100H0Z" fill="#2161f510"/><path d="M0 80L25 65L50 73L75 38L100 50L125 28L150 40L175 15L200 26L225 12L250 3" fill="none" stroke="#2161f5" strokeWidth="2.5"/><path d="M0 92L25 80L50 87L75 70L100 77L125 58L150 65L175 44L200 61L225 46L250 50" fill="none" stroke="#43c6a1" strokeWidth="2"/></svg><div className="login-demo-months">Jan Fev Mar Abr Mai Jun</div></div><div><strong>Pedidos em produção</strong><div className="login-demo-ring"><b>24<small>pedidos</small></b></div><small className="login-demo-chart-caption">● Em andamento &nbsp; ● Concluídos</small></div></div>
+          <div className="login-demo-bottom"><strong>Últimas movimentações</strong><div><span className="login-demo-income">↗</span>Pedido entregue <small>Hoje</small><b>+ R$ 450,00</b></div><div><span className="login-demo-income">↗</span>Venda em consignação <small>Hoje</small><b>+ R$ 180,00</b></div></div>
+          </div></div></div>
+        <div className="login-laptop-base"><div/></div>
+      </div>
+      <p className="login-presentation-security"><ShieldCheck/> Seu espaço de trabalho, com acesso seguro.</p>
+    </section>
+    </div>
+    <footer className="login-page-footer">© {new Date().getFullYear()} Finanbase. Seu negócio em boas mãos.</footer>
   </main>;
 }
