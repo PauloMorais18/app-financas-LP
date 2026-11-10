@@ -4,6 +4,7 @@ import { api } from "../../services/api";
 
 import { ArrowRight, ArrowLeft, Eye, EyeOff, LockKeyhole, LoaderCircle, Mail, UserRound, KeyRound, ShieldCheck } from "lucide-react";
 import "./login.css";
+import PrintStudioIllustration from "./PrintStudioIllustration";
 
 const rememberedEmail = () => { try { return localStorage.getItem("finanbase-login-email") || ""; } catch { return ""; } };
 
@@ -83,22 +84,14 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
         <p className="login-bottom-note">{mode === "signup" ? "Já tem uma conta?" : recovery ? "Lembrou sua senha?" : "Ainda não tem uma conta?"} <button type="button" disabled={busy} onClick={()=>switchMode(mode === "login" ? "signup" : "login")}>{mode === "login" ? "Criar conta" : "Entrar"}</button></p>
       </div>
     </section>
-    <section className="login-presentation" aria-label="Conheça o Finanbase">
-      <div className="login-product-brand"><img src="/finanbase-icon.svg" alt="" width="76" height="76"/><span>finanbase<small>simples. conectado. seu.</small></span></div>
-      <h1>Gestão para o seu negócio</h1>
-      <p className="login-product-description">Mais clareza nas finanças.<br/>Mais controle em cada etapa da produção.</p>
-      <div className="login-product-features"><p>Financeiro <span>|</span> Pedidos <span>|</span> Produção</p><p>Consignados <span>|</span> Clientes <span>|</span> Relatórios</p><p className="login-product-tagline">Tudo conectado, em um só lugar.</p></div>
-      <div className="login-laptop" aria-hidden="true">
-        <div className="login-laptop-screen"><div className="login-demo-app">
-          <aside className="login-demo-sidebar"><div className="login-demo-brand"><img src="/finanbase-icon.svg" alt=""/>finanbase</div><i className="selected">▦ &nbsp; Visão geral</i><i>↗ &nbsp; Movimentações</i><i>▤ &nbsp; Pedidos</i><i>▧ &nbsp; Produção</i><i>▥ &nbsp; Consignados</i><i>♙ &nbsp; Clientes</i><div className="login-demo-avatar">FB <span>Meu negócio</span></div></aside>
-          <div className="login-demo-content"><div className="login-demo-topbar"><b>Visão geral</b><span>Seu negócio, em dia <span className="login-demo-dot"/></span></div><div className="login-demo-heading"><div><strong>Uma visão de tudo.</strong><small>Acompanhe os resultados do seu negócio.</small></div><span>+ Nova movimentação</span></div>
-          <div className="login-demo-kpis"><div><small>Saldo disponível</small><b>R$ 12.450,00</b><em>↗ Seu negócio crescendo</em></div><div><small>Entradas do mês</small><b>R$ 18.200,00</b><em>↗ Receitas organizadas</em></div><div><small>Saídas do mês</small><b>R$ 5.750,00</b><em>Despesas sob controle</em></div></div>
-          <div className="login-demo-charts"><div><strong>Fluxo de caixa</strong><svg viewBox="0 0 250 100"><path d="M0 20H250M0 45H250M0 70H250M0 95H250" fill="none" stroke="#eef2f7"/><path d="M0 80L25 65L50 73L75 38L100 50L125 28L150 40L175 15L200 26L225 12L250 3V100H0Z" fill="#2161f510"/><path d="M0 80L25 65L50 73L75 38L100 50L125 28L150 40L175 15L200 26L225 12L250 3" fill="none" stroke="#2161f5" strokeWidth="2.5"/><path d="M0 92L25 80L50 87L75 70L100 77L125 58L150 65L175 44L200 61L225 46L250 50" fill="none" stroke="#43c6a1" strokeWidth="2"/></svg><div className="login-demo-months">Jan Fev Mar Abr Mai Jun</div></div><div><strong>Pedidos em produção</strong><div className="login-demo-ring"><b>24<small>pedidos</small></b></div><small className="login-demo-chart-caption">● Em andamento &nbsp; ● Concluídos</small></div></div>
-          <div className="login-demo-bottom"><strong>Últimas movimentações</strong><div><span className="login-demo-income">↗</span>Pedido entregue <small>Hoje</small><b>+ R$ 450,00</b></div><div><span className="login-demo-income">↗</span>Venda em consignação <small>Hoje</small><b>+ R$ 180,00</b></div></div>
-          </div></div></div>
-        <div className="login-laptop-base"><div/></div>
-      </div>
-      <p className="login-presentation-security"><ShieldCheck/> Seu espaço de trabalho, com acesso seguro.</p>
+    <section className="login-presentation" aria-label="Finanbase para impressão 3D">
+      <div className="login-product-brand"><img src="/finanbase-icon.svg" alt="" width="42" height="42"/><span>finanbase</span></div>
+      <p className="login-maker-eyebrow">DA IDEIA À PEÇA PRONTA</p>
+      <h1>Você cria em 3D.<br/><span>A gente conecta<br/>o seu negócio.</span></h1>
+      <p className="login-product-description">Do custo do filamento à entrega do pedido.<br/>Finanças e produção, camada por camada.</p>
+      <PrintStudioIllustration/>
+      <div className="login-maker-flow" aria-label="Organize cada etapa"><span><b>01</b> Calcule os custos</span><ArrowRight aria-hidden="true"/><span><b>02</b> Organize a produção</span><ArrowRight aria-hidden="true"/><span><b>03</b> Acompanhe as vendas</span></div>
+      <p className="login-presentation-security"><ShieldCheck/> Mais tempo para criar. Mais clareza para crescer.</p>
     </section>
     </div>
     <footer className="login-page-footer">© {new Date().getFullYear()} Finanbase. Seu negócio em boas mãos.</footer>
