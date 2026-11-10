@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { supabase, supabaseConfigured } from "../../services/supabase";
+import { remembersSession, setRememberSession } from "../../services/auth-storage";
 import { api } from "../../services/api";
 
 import { ArrowRight, ArrowLeft, Eye, EyeOff, LockKeyhole, LoaderCircle, Mail, UserRound, KeyRound, ShieldCheck } from "lucide-react";
@@ -16,7 +17,7 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [token, setToken] = useState("");
-  const [remember, setRemember] = useState(Boolean(rememberedEmail()));
+  const [remember, setRemember] = useState(() => { try { return remembersSession() || Boolean(rememberedEmail()); } catch { return false; } });
   const submitting = useRef(false);
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -34,6 +35,7 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
         sessionStorage.setItem("finanbase-recovery", "1"); sessionStorage.setItem("finanbase-recovery-email", normalizedEmail); setMode("reset"); setMessage("Se houver uma conta para este e-mail, você receberá um código de recuperação.");
       } else if (mode === "reset") {
         if (password !== confirmation) throw new Error("As senhas não conferem.");
+        setRememberSession(false);
         const { error: verificationError } = await supabase.auth.verifyOtp({ email: normalizedEmail, token: token.trim(), type: "recovery" });
         if (verificationError) throw verificationError;
         const { error: updateError } = await supabase.auth.updateUser({ password });
@@ -41,10 +43,12 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
         await supabase.auth.signOut(); switchMode("login"); setMessage("Senha atualizada. Entre com sua nova senha.");
       } else if (mode === "signup") {
         if (password !== confirmation) throw new Error("As senhas não conferem.");
+        setRememberSession(false);
         const response = await api.post<{ user: User | null; message: string }>("/auth/signup", { name: name.trim(), email: normalizedEmail, password });
         setMessage(response.data.message);
         if (response.data.user && response.data.message === "Conta criada.") onLogin(response.data.user);
       } else {
+        setRememberSession(remember);
         const response = await api.post<{ user: User }>("/auth/login", { email: normalizedEmail, password });
         try { if (remember) localStorage.setItem("finanbase-login-email", normalizedEmail); else localStorage.removeItem("finanbase-login-email"); } catch {}
         onLogin(response.data.user);
@@ -56,6 +60,7 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
     if (submitting.current) return; submitting.current = true; setBusy(true); setError(""); setMessage("");
     try {
       if (!supabaseConfigured) throw new Error("Configure o Supabase para continuar.");
+      setRememberSession(remember);
       const { error } = await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin, queryParams: { prompt: "select_account" } } });
       if (error) throw error;
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao acessar o Google."); submitting.current = false; setBusy(false); }
@@ -76,7 +81,7 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
             <label className="login-icon-field" htmlFor="auth-email"><span className="login-sr-only">E-mail</span><Mail aria-hidden="true"/><input id="auth-email" type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" placeholder="Seu e-mail" required readOnly={mode === "reset"} autoCapitalize="none" spellCheck={false}/></label>
             {mode === "reset" && <label className="login-icon-field" htmlFor="auth-token"><span className="login-sr-only">Código recebido por e-mail</span><KeyRound aria-hidden="true"/><input id="auth-token" value={token} onChange={e=>setToken(e.target.value)} autoComplete="one-time-code" inputMode="numeric" pattern="[0-9]{6,8}" maxLength={8} placeholder="Digite o código" required/></label>}
             {mode !== "recover" && <><div className="login-password-field"><div className="login-label-row"><label className="login-sr-only" htmlFor="auth-password">{mode === "reset" ? "Nova senha" : "Senha"}</label></div><div className="password-input"><LockKeyhole className="login-input-icon" aria-hidden="true"/><input id="auth-password" type={show ? "text" : "password"} value={password} onChange={e=>setPassword(e.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "login" ? 1 : 8} placeholder={mode === "login" ? "Senha" : "Senha com 8 ou mais caracteres"} aria-describedby={mode !== "login" ? "auth-password-hint" : undefined} required/><button type="button" onClick={()=>setShow(!show)} aria-label={show ? "Ocultar senha" : "Mostrar senha"} aria-pressed={show} title={show ? "Ocultar senha" : "Mostrar senha"}>{show ? <EyeOff/> : <Eye/>}</button></div>{mode !== "login" && <small id="auth-password-hint">Use pelo menos 8 caracteres.</small>}</div>{mode !== "login" && <label className="login-icon-field" htmlFor="auth-confirmation"><span className="login-sr-only">Confirmar senha</span><LockKeyhole aria-hidden="true"/><input id="auth-confirmation" type={show ? "text" : "password"} value={confirmation} onChange={e=>setConfirmation(e.target.value)} autoComplete="new-password" minLength={8} placeholder="Repita sua senha" required/></label>}</>}
-            {mode === "login" && <div className="login-options"><label className="login-remember"><input type="checkbox" checked={remember} onChange={e=>{setRemember(e.target.checked);if(!e.target.checked){try{localStorage.removeItem("finanbase-login-email")}catch{}}}}/>Lembrar e-mail</label><button className="login-text-button" type="button" onClick={()=>switchMode("recover")}>Esqueceu a senha?</button></div>}
+            {mode === "login" && <div className="login-options"><label className="login-remember"><input type="checkbox" checked={remember} onChange={e=>{setRemember(e.target.checked);if(!e.target.checked){try{localStorage.removeItem("finanbase-login-email")}catch{}}}}/>Lembrar de mim</label><button className="login-text-button" type="button" onClick={()=>switchMode("recover")}>Esqueceu a senha?</button></div>}
             <button className="primary login-button" type="submit">{busy ? <><LoaderCircle className="login-spinner"/> Aguarde...</> : <>{mode === "signup" ? "Criar minha conta" : mode === "recover" ? "Enviar código" : mode === "reset" ? "Salvar nova senha" : "Entrar"}<ArrowRight/></>}</button>
           </fieldset>
         </form>

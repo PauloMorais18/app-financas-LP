@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { authStorage } from "./auth-storage";
 
 const url = import.meta.env.VITE_SUPABASE_URL || "";
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
@@ -10,6 +11,7 @@ export const supabase = createClient(
   {
     auth: {
       persistSession: true,
+      storage: authStorage,
       autoRefreshToken: true,
       detectSessionInUrl: true,
     },

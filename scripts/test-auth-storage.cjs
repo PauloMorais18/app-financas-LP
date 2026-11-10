@@ -1,0 +1,18 @@
+const fs=require("node:fs");
+const assert=require("node:assert/strict");
+const ts=require("typescript");
+const storage=()=>{const values=new Map();return {getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key),clear:()=>values.clear()}};
+const local=storage(),session=storage(),mod={exports:{}};
+const code=ts.transpileModule(fs.readFileSync("client/src/services/auth-storage.ts","utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText;
+new Function("exports","localStorage","sessionStorage",code)(mod.exports,local,session);
+const {authStorage,setRememberSession,remembersSession}=mod.exports;
+const key="sb-test-auth-token";
+local.setItem(key,"legacy-session");assert.equal(authStorage.getItem(key),"legacy-session");
+setRememberSession(false);authStorage.setItem(key,"temporary-session");
+assert.equal(local.getItem(key),null);assert.equal(session.getItem(key),"temporary-session");assert.equal(remembersSession(),false);
+session.clear();assert.equal(authStorage.getItem(key),null);
+setRememberSession(true);authStorage.setItem(key,"remembered-session");session.clear();
+assert.equal(authStorage.getItem(key),"remembered-session");assert.equal(remembersSession(),true);
+session.setItem(key,"stale");authStorage.removeItem(key);assert.equal(local.getItem(key),null);assert.equal(session.getItem(key),null);
+setRememberSession(false);authStorage.setItem(key,"next-user");assert.equal(local.getItem(key),null);assert.equal(authStorage.getItem(key),"next-user");
+console.log("PASS: sessao temporaria/persistente, compatibilidade, troca de preferencia e logout nos dois armazenamentos.");
