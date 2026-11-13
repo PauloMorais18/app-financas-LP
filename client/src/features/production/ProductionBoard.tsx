@@ -13,7 +13,7 @@ import "./production.css";
 const stages = [
   { id: "modeling", label: "Modelagem", icon: Shapes },
   { id: "printing", label: "Impressão", icon: Printer },
-  { id: "painting", label: "Pintura", icon: Paintbrush },
+  { id: "painting", label: "Pintura/Últimos Ajustes", icon: Paintbrush },
   { id: "delivery", label: "Entrega", icon: PackageCheck },
 ] as const;
 type Props = { groupId: string; orders: Order[]; loading: boolean; error: string; reload: () => void; notify: (message: string, error?: boolean) => void };

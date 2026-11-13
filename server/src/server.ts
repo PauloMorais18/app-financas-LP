@@ -646,9 +646,10 @@ app.get(
       );
     let balance = 0;
     const evolution = [...valid]
-      .sort((a, b) => a.date.localeCompare(b.date))
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || "").localeCompare(b.createdAt || "") || a.id.localeCompare(b.id))
       .map((t) => ({
         date: t.date,
+        createdAt: t.createdAt,
         balance: (balance += t.type === "income" ? t.value : -t.value),
       }));
     r.json({

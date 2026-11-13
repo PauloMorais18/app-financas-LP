@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -25,6 +26,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Brush,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -494,7 +496,7 @@ function Dashboard() {
     }),
     charts = useLoad<{
       monthly: { name: string; income: number; expense: number }[];
-      evolution: { date: string; balance: number }[];
+      evolution: { date: string; balance: number; createdAt?: string }[];
     }>(`/dashboard/charts?${params}`, { monthly: [], evolution: [] }),
     recent = useLoad<{ data: Transaction[] }>(
       `/transactions?${query({ groupId: activeGroupId, sourceId, limit: "5" })}`,
@@ -573,23 +575,7 @@ function Dashboard() {
             </BarChart>
           </ResponsiveContainer>
         </article>
-        <article className="card chart">
-          <CardTitle title="Evolução do saldo" subtitle="Saldo acumulado" />
-          <ResponsiveContainer width="100%" height={270}>
-            <LineChart data={charts.data.evolution}>
-              <CartesianGrid vertical={false} stroke="#eef1f5" />
-              <XAxis dataKey="date" hide />
-              <YAxis hide />
-              <Tooltip formatter={(value: number) => money.format(value)} />
-              <Line
-                dataKey="balance"
-                stroke="#2161f5"
-                strokeWidth={3}
-                dot={{ fill: "#2161f5", r: 3 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </article>
+        <BalanceChart data={charts.data.evolution} />
       </section>
       <article className="card recent">
         <CardTitle
@@ -2004,4 +1990,64 @@ function Empty({ text }: { text: string }) {
       <span>{text}</span>
     </div>
   );
+}
+
+function BalanceChart({ data }: { data: { date: string; balance: number; createdAt?: string }[] }) {
+  const [range, setRange] = useState({ startIndex: 0, endIndex: Math.max(0, data.length - 1) });
+  const container = useRef<HTMLDivElement>(null);
+  useEffect(() => setRange({ startIndex: 0, endIndex: Math.max(0, data.length - 1) }), [data]);
+  const zoom = (factor: number, anchor = 0.5) => setRange(current => {
+    const span = current.endIndex - current.startIndex;
+    const size = Math.min(data.length - 1, Math.max(Math.min(4, data.length - 1), Math.round(Math.max(1, span) * factor)));
+    const startIndex = Math.max(0, Math.min(data.length - 1 - size, Math.round(current.startIndex + (span - size) * anchor)));
+    return { startIndex, endIndex: startIndex + size };
+  });
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  useEffect(() => {
+    const element = container.current;
+    if (!element || data.length < 2) return;
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = element.getBoundingClientRect();
+      zoomRef.current(event.deltaY < 0 ? 0.8 : 1.25, Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)));
+    };
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, [data]);
+  const points = data.map((point, index) => ({ ...point, index }));
+  const label = (index: number) => {
+    const point = data[index];
+    if (!point) return "";
+    const time = point.createdAt && Number.isFinite(Date.parse(point.createdAt)) ? new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).format(new Date(point.createdAt)) : "";
+    return point.date.slice(0, 10).split("-").reverse().join("/") + (time ? " · " + time : "");
+  };
+  const min = data.reduce((value, point) => Math.min(value, point.balance), Infinity);
+  const max = data.reduce((value, point) => Math.max(value, point.balance), -Infinity);
+  return <article className="card chart balance-chart">
+    <div className="balance-heading"><CardTitle title="Evolução do saldo" subtitle="Saldo acumulado" />
+      <div className="balance-extremes" title="Extremos de todo o histórico filtrado">
+        <span className="expense"><small>(−) Mínimo</small><b>{data.length ? money.format(min) : "—"}</b></span>
+        <span className="income"><small>(+) Máximo</small><b>{data.length ? money.format(max) : "—"}</b></span>
+      </div>
+    </div>
+    {data.length ? <>
+      <div className="balance-controls"><span>{range.endIndex - range.startIndex + 1} de {data.length} registros</span>
+        <button type="button" aria-label="Desaproximar" disabled={range.endIndex - range.startIndex >= data.length - 1} onClick={() => zoom(1.5)}>−</button>
+        <button type="button" aria-label="Aproximar" disabled={range.endIndex - range.startIndex <= Math.min(4, data.length - 1)} onClick={() => zoom(0.67)}>+</button>
+        <button type="button" onClick={() => setRange({ startIndex: 0, endIndex: data.length - 1 })}>Ver tudo</button>
+      </div>
+      <div ref={container}><ResponsiveContainer width="100%" height={300}>
+        <LineChart data={points} margin={{ top: 12, right: 12, bottom: 8, left: 0 }}>
+          <CartesianGrid vertical={false} stroke="#eef1f5" />
+          <XAxis dataKey="index" tickFormatter={label} interval="preserveStartEnd" minTickGap={35} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} height={40} />
+          <YAxis hide domain={["auto", "auto"]} />
+          <Tooltip labelFormatter={value => label(Number(value))} formatter={(value: number) => [money.format(value), "Saldo"]} />
+          <Line dataKey="balance" name="Saldo" stroke="#2161f5" strokeWidth={2} dot={data.length === 1 ? { r: 4 } : false} activeDot={{ r: 4 }} isAnimationActive={false} />
+          {data.length > 1 && <Brush dataKey="index" tickFormatter={label} height={30} stroke="#2161f5" travellerWidth={10} startIndex={range.startIndex} endIndex={range.endIndex} onChange={next => { if (next.startIndex !== undefined && next.endIndex !== undefined) setRange({ startIndex: next.startIndex, endIndex: next.endIndex }); }} />}
+        </LineChart>
+      </ResponsiveContainer></div>
+      <p className="balance-help">Role para ajustar o zoom. Arraste a barra inferior para navegar. Hora de cadastro (Brasília), quando disponível.</p>
+    </> : <div className="empty">Nenhum registro para exibir.</div>}
+  </article>;
 }
