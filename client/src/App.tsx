@@ -301,6 +301,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
           <Route path="pedidos" element={<OrderQueue notify={notify} />} />
           <Route path="consignados" element={<ConsignmentsPage key={activeGroupId} groupId={activeGroupId} notify={notify} />} />
           <Route path="ordem-producao" element={<ProductionPage notify={notify} />} />
+          <Route path="marketplaces" element={<><PageHeading title="Marketplaces" subtitle="Shopee e Mercado Livre" /><div className="card empty">Nenhum marketplace conectado.</div></>} />
           <Route path="pedidos/novo" element={<OrderForm notify={notify} />} />
           <Route path="pedidos/:id" element={<OrderForm notify={notify} />} />
           <Route path="relatorios" element={<WorkshopReports />} />
@@ -355,6 +356,18 @@ function Layout() {
           </NavLink>
           <NavLink to="/consignados"><Package />Consignados</NavLink>
           <NavLink to="/ordem-producao"><FileText />Ordem de produção</NavLink>
+          <NavLink to="/marketplaces" className="marketplaces-link">
+            <svg className="shopee-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M4 7h16l1 15H3L4 7Z" />
+              <path d="M8 8V6a4 4 0 0 1 8 0v2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M14.7 11.3c-.8-.7-3.8-1.2-4.5.4-1.1 2.6 5.1 1.7 4.2 4.5-.6 1.8-3.8 1.7-5.1.6" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <span>Marketplaces</span>
+            <svg className="mercado-livre-icon" viewBox="0 0 32 24" aria-hidden="true" focusable="false">
+              <ellipse cx="16" cy="12" rx="15" ry="10" fill="#ffe600" stroke="#d4ad00" />
+              <path d="m3 10 5-3 5 2 4-1 5 1 7 3-5 5-4 2-3-1-2 1-3-2-3-1-3-4m7-3-3 3c-1 2 1 3 3 2l3-2 6 5m-10-1 4 3m0-4 4 3" fill="#fff" stroke="#293b68" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </NavLink>
           <button className="nav-parent" aria-expanded={movementsOpen} aria-controls="movements-menu" onClick={(event) => { event.stopPropagation(); setMovementsOpen(value => !value); }}>
             <WalletCards /> Movimentações <span>{movementsOpen ? "−" : "+"}</span>
           </button>
