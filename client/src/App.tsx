@@ -87,6 +87,7 @@ import { dateBR, money } from "./utils/format";
 import "./catalog.css";
 import ConsignmentsPage from "./features/consignments/ConsignmentsPage";
 import ProductionBoard from "./features/production/ProductionBoard";
+import MarketplacesPage from "./features/marketplaces/MarketplacesPage";
 
 const APP_BUILD_ID = "group-sharing-debug-v1";
 
@@ -301,7 +302,7 @@ function AuthenticatedApp({ authUser, logout }: { authUser: AuthUser; logout: ()
           <Route path="pedidos" element={<OrderQueue notify={notify} />} />
           <Route path="consignados" element={<ConsignmentsPage key={activeGroupId} groupId={activeGroupId} notify={notify} />} />
           <Route path="ordem-producao" element={<ProductionPage notify={notify} />} />
-          <Route path="marketplaces" element={<><PageHeading title="Marketplaces" subtitle="Shopee e Mercado Livre" /><div className="card empty">Nenhum marketplace conectado.</div></>} />
+          <Route path="marketplaces" element={<MarketplacesPage key={activeGroupId} groupId={activeGroupId} canManage={groupsLoad.data.find(group => group.id === activeGroupId)?.ownerId === authUser.id} notify={notify} />} />
           <Route path="pedidos/novo" element={<OrderForm notify={notify} />} />
           <Route path="pedidos/:id" element={<OrderForm notify={notify} />} />
           <Route path="relatorios" element={<WorkshopReports />} />
@@ -568,7 +569,7 @@ function Dashboard() {
             subtitle="Ganhos e despesas por mês"
           />
           <ResponsiveContainer width="100%" height={270}>
-            <BarChart data={charts.data.monthly}>
+            <BarChart data={[...charts.data.monthly].sort((a, b) => a.name.localeCompare(b.name))}>
               <CartesianGrid vertical={false} stroke="#eef1f5" />
               <XAxis dataKey="name" axisLine={false} tickLine={false} />
               <YAxis hide />
@@ -2028,7 +2029,8 @@ function BalanceChart({ data }: { data: { date: string; balance: number; created
     element.addEventListener("wheel", wheel, { passive: false });
     return () => element.removeEventListener("wheel", wheel);
   }, [data]);
-  const points = data.map((point, index) => ({ ...point, index }));
+  // Keep the data reference stable so Brush does not reset an active drag.
+  const points = useMemo(() => data.map((point, index) => ({ ...point, index })), [data]);
   const label = (index: number) => {
     const point = data[index];
     if (!point) return "";
